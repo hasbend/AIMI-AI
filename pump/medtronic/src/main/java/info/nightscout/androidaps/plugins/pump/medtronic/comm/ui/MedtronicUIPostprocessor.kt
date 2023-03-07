@@ -1,8 +1,6 @@
 package info.nightscout.androidaps.plugins.pump.medtronic.comm.ui
 
-import info.nightscout.shared.logging.AAPSLogger
-import info.nightscout.shared.logging.LTag
-import info.nightscout.androidaps.plugins.bus.RxBus
+import info.nightscout.shared.interfaces.ResourceHelper
 import info.nightscout.androidaps.plugins.pump.medtronic.MedtronicPumpPlugin
 import info.nightscout.androidaps.plugins.pump.medtronic.data.dto.BasalProfile
 import info.nightscout.androidaps.plugins.pump.medtronic.data.dto.BatteryStatusDTO
@@ -14,10 +12,13 @@ import info.nightscout.androidaps.plugins.pump.medtronic.defs.MedtronicNotificat
 import info.nightscout.androidaps.plugins.pump.medtronic.defs.MedtronicUIResponseType
 import info.nightscout.androidaps.plugins.pump.medtronic.driver.MedtronicPumpStatus
 import info.nightscout.androidaps.plugins.pump.medtronic.util.MedtronicUtil
-import info.nightscout.androidaps.interfaces.ResourceHelper
+import info.nightscout.rx.bus.RxBus
+import info.nightscout.rx.logging.AAPSLogger
+import info.nightscout.rx.logging.LTag
 import org.joda.time.DateTimeZone
 import org.joda.time.Duration
-import java.util.*
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -114,7 +115,7 @@ class MedtronicUIPostprocessor @Inject constructor(
             MedtronicCommandType.PumpModel           -> {
                 if (medtronicPumpStatus.medtronicDeviceType !== medtronicUtil.medtronicPumpModel) {
                     aapsLogger.warn(LTag.PUMP, "Configured pump is different then pump detected !")
-                    medtronicUtil.sendNotification(MedtronicNotificationType.PumpTypeNotSame, rh, rxBus)
+                    medtronicUtil.sendNotification(MedtronicNotificationType.PumpTypeNotSame, rh)
                 }
             }
 
@@ -155,12 +156,12 @@ class MedtronicUIPostprocessor @Inject constructor(
             checkValue = settings["PCFG_BASAL_PROFILES_ENABLED"]!!
             if ("Yes" != checkValue.value) {
                 aapsLogger.error(LTag.PUMP, "Basal profiles are not enabled on pump.")
-                medtronicUtil.sendNotification(MedtronicNotificationType.PumpBasalProfilesNotEnabled, rh, rxBus)
+                medtronicUtil.sendNotification(MedtronicNotificationType.PumpBasalProfilesNotEnabled, rh)
             } else {
                 checkValue = settings["PCFG_ACTIVE_BASAL_PROFILE"]!!
                 if ("STD" != checkValue.value) {
                     aapsLogger.error("Basal profile set on pump is incorrect (must be STD).")
-                    medtronicUtil.sendNotification(MedtronicNotificationType.PumpIncorrectBasalProfileSelected, rh, rxBus)
+                    medtronicUtil.sendNotification(MedtronicNotificationType.PumpIncorrectBasalProfileSelected, rh)
                 }
             }
         }
@@ -169,7 +170,7 @@ class MedtronicUIPostprocessor @Inject constructor(
         if (settings.containsKey("PCFG_TEMP_BASAL_TYPE")) {
             if ("Units" != settings["PCFG_TEMP_BASAL_TYPE"]!!.value) {
                 aapsLogger.error("Wrong TBR type set on pump (must be Absolute).")
-                medtronicUtil.sendNotification(MedtronicNotificationType.PumpWrongTBRTypeSet, rh, rxBus)
+                medtronicUtil.sendNotification(MedtronicNotificationType.PumpWrongTBRTypeSet, rh)
             }
         }
 
@@ -178,7 +179,7 @@ class MedtronicUIPostprocessor @Inject constructor(
             checkValue = settings["PCFG_MAX_BOLUS"]!!
             if (!MedtronicUtil.isSame(checkValue.value.toDouble(), medtronicPumpStatus.maxBolus!!)) {
                 aapsLogger.error(LTag.PUMPCOMM, String.format(Locale.ENGLISH, "Wrong Max Bolus set on Pump (current=%s, required=%.2f).", checkValue.value, medtronicPumpStatus.maxBolus))
-                medtronicUtil.sendNotification(MedtronicNotificationType.PumpWrongMaxBolusSet, rh, rxBus, medtronicPumpStatus.maxBolus)
+                medtronicUtil.sendNotification(MedtronicNotificationType.PumpWrongMaxBolusSet, rh, medtronicPumpStatus.maxBolus)
             }
         }
 
@@ -186,7 +187,7 @@ class MedtronicUIPostprocessor @Inject constructor(
             checkValue = settings["PCFG_MAX_BASAL"]!!
             if (!MedtronicUtil.isSame(checkValue.value.toDouble(), medtronicPumpStatus.maxBasal!!)) {
                 aapsLogger.error(LTag.PUMPCOMM, String.format(Locale.ENGLISH, "Wrong Max Basal set on Pump (current=%s, required=%.2f).", checkValue.value, medtronicPumpStatus.maxBasal))
-                medtronicUtil.sendNotification(MedtronicNotificationType.PumpWrongMaxBasalSet, rh, rxBus, medtronicPumpStatus.maxBasal)
+                medtronicUtil.sendNotification(MedtronicNotificationType.PumpWrongMaxBasalSet, rh, medtronicPumpStatus.maxBasal)
             }
         }
     }

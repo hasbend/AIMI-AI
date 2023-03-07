@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="resetpairing">Panaikinti sąsają</string>
-    <string name="diaconn_nodeviceavailable">Nėra prieinamų įrenginių</string>
+    <string name="diaconn_no_device_available">Nėra prieinamų įrenginių</string>
     <string name="diaconn_pairing">Diaconn pompos sąsaja</string>
     <string name="pumperror">Pompos klaida</string>
     <string name="diaconn_g8_history_alarm">Aliarmai</string>
@@ -49,7 +49,7 @@
     <string name="bolus_step">Boluso žingsnis</string>
     <string name="basal_step">Bazės žingsnis</string>
     <string name="pump_firmware_label">Programinė įranga</string>
-    <string name="diagonn_g8_useroptions">VARTOTOJO PARINKTYS</string>
+    <string name="diaconn_g8_user_options">VARTOTOJO PARINKTYS</string>
     <string name="pairfirst">Atnaujinkite pompos ir telefono ryšį!</string>
     <string name="processinghistory">"Apdorojama "</string>
     <string name="apslastLogNum">aps_last_log_num</string>
@@ -152,4 +152,6 @@
     <string name="diaconn_g8_errorcode_34">Sustabdymo prie žemos glikemijos režimas išjungtas, komanda IŠJUNGTI atmesta.</string>
     <string name="diaconn_g8_errorcode_35">Laikinos bazės paleidimas atmestas, nes jau veikia nustatyta laikina bazė</string>
     <string name="diaconn_g8_errorcode_36">Laikinos bazės stabdymas atmestas, nes nėra nustatyta laikina bazė</string>
+    <string name="diaconn_g8_cloudsend_summary">Siųsti pompos įrašus į Diaconn Cloud.</string>
+    <string name="diaconn_g8_cloudsend_title">Diaconn Cloud Sync</string>
 </resources>
