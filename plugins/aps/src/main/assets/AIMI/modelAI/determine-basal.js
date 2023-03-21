@@ -13,86 +13,6 @@
 
 
 var round_basal = require('../round-basal')
-var bgValues = [];
-var now = new Date();
-var deltaValues = [];
-var isReduced = false; // Initialiser la variable globale
-var reductionCount = 0;
-
-function processNewBGValue(newBG) {
-    if (newBG < 70) {
-        reductionCount = 10;
-    }
-
-    if (reductionCount > 0) {
-        // Définir isReduced à true si reductionCount est plus grand que 0
-        isReduced = true;
-
-        // Décrémenter le compteur
-        reductionCount--;
-    } else {
-        // Définir isReduced à false si reductionCount est égal à 0
-        isReduced = false;
-    }
-}
-
-function getMedianBG(newBG) {
-    var hours = now.getHours();
-
-    // Si nous sommes entre minuit (0 heure) et 6 heures du matin, on utilise la médiane
-    if (hours >= 0 && hours < 6) {
-        // Ajoutez la nouvelle valeur à la liste et triez la liste
-        bgValues.push(newBG);
-        bgValues.sort();
-
-        // Choisissez la valeur médiane
-        var medianBG;
-        if (bgValues.length % 2 === 0) {
-            medianBG = (bgValues[bgValues.length / 2 - 1] + bgValues[bgValues.length / 2]) / 2;
-        } else {
-            medianBG = bgValues[(bgValues.length - 1) / 2];
-        }
-
-        // Retirez la valeur la plus ancienne si la liste est trop longue
-        if (bgValues.length > 5) {
-            bgValues.shift();
-        }
-
-        return medianBG;
-    } else {
-        // Pendant la journée, retournez simplement la valeur actuelle
-        return newBG;
-    }
-}
-
-function getMedianDelta(newDelta) {
-    // Ajoutez la nouvelle valeur à la liste et triez la liste
-    deltaValues.push(newDelta);
-    deltaValues.sort();
-
-    // Choisissez la valeur médiane
-    var medianDelta;
-    if (deltaValues.length % 2 === 0) {
-        medianDelta = (deltaValues[deltaValues.length / 2 - 1] + deltaValues[deltaValues.length / 2]) / 2;
-    } else {
-        medianDelta = deltaValues[(deltaValues.length - 1) / 2];
-    }
-
-    // Retirez la valeur la plus ancienne si la liste est trop longue
-    if (deltaValues.length > 5) {
-        deltaValues.shift();
-    }
-
-    return medianDelta;
-}
-// Fonctions
-function calculerMicroBolus(AIMI_UAM_CAP,microBolus, max_iob, iob_data) {
-    return Math.min(AIMI_UAM_CAP,microBolus, max_iob - iob_data.iob);
-}
-
-function calculerMicroBolusSelonBG(minPredBG, eventualBG, target_bg, future_sens) {
-    return Math.min(AIMI_UAM_CAP, round((Math.min(minPredBG, eventualBG) - target_bg) / future_sens, 2));
-}
 
 // Rounds value to 'digits' decimal places
 function round(value, digits)
@@ -186,10 +106,66 @@ function enable_smb(
     console.error("SMB disabled (no enableSMB preferences active or no condition satisfied)");
     return true;
 }
+/*function cgm(bg, iob_data, sens, normalTarget) {
+  // Matrices de transition
+  var A = 1;
+  var B = -sens * iob_data.iob;
+  var H = 1;
+  var Q = 0.01;
+  var R = 0.1;
+  var P = 1;
+  var x = bg-delta;
+  var K;
 
-var determine_basal = function determine_basal(glucose_status, currenttemp, iob_data, profile, autosens_data, meal_data, tempBasalFunctions, microBolusAllowed, reservoir_data, currentTime, flatBGsDetected) {
+  // Étape de prédiction
+  var x_pred = A * x + B;
+  var P_pred = A * P * A + Q;
 
+  // Étape de correction
+  K = P_pred * H / (H * P_pred * H + R);
+  x = x_pred + K * (bg - H * x_pred);
+  P = (1 - K * H) * P_pred;
+
+  // Estimation des constantes k1 et k2
+  var k1 = (normalTarget - bg) * x;
+  var k2 = ((bg-delta) - bg) * x;
+
+  // Évolution de la glycémie
+
+  var evobg = -sens * iob_data.iob + k1 * (normalTarget - bg) + k2 * ((bg-delta) - bg);
+
+  return evobg
+}*/
+
+function determine_varSMBratio(profile, bg, target_bg)
+{   // mod 12: let SMB delivery ratio increase f#rom min to max depending on how much bg exceeds target
+    if ( typeof profile.smb_delivery_ratio_bg_range === 'undefined' || profile.smb_delivery_ratio_bg_range === 0 ) {
+        // not yet upgraded to this version or deactivated in SMB extended menu
+        console.error('SMB delivery ratio set to fixed value', profile.smb_delivery_ratio);
+        return profile.smb_delivery_ratio;
+    }
+    var lower_SMB = Math.min(profile.smb_delivery_ratio_min, profile.smb_delivery_ratio_max);
+    if (bg <= target_bg) {
+        console.error('SMB delivery ratio limited by minimum value', lower_SMB);
+        return lower_SMB;
+    }
+    var higher_SMB = Math.max(profile.smb_delivery_ratio_min, profile.smb_delivery_ratio_max);
+    var higher_bg = target_bg + profile.smb_delivery_ratio_bg_range;
+    if (bg >= higher_bg) {
+        console.error('SMB delivery ratio limited by maximum value', higher_SMB);
+        return higher_SMB;
+    }
+    var new_SMB = lower_SMB + (higher_SMB - lower_SMB)*(bg-target_bg) / profile.smb_delivery_ratio_bg_range;
+    console.error('SMB delivery ratio set to interpolated value', new_SMB);
+    return new_SMB;
+}
+
+
+
+var determine_basal = function determine_basal(glucose_status, currenttemp, iob_data, profile, autosens_data, meal_data, tempBasalFunctions, microBolusAllowed, reservoir_data, currentTime, isSaveCgmSource) {
     var rT = {}; //short for requestedTemp
+    var b30upperLimit = profile.b30_upperBG;
+    var b30upperdelta = profile.b30_upperdelta;
     var deliverAt = new Date();
     //variable for step
     var countsteps = profile.key_use_countsteps;
@@ -197,14 +173,18 @@ var determine_basal = function determine_basal(glucose_status, currenttemp, iob_
     var recentSteps10Minutes = profile.recentSteps10Minutes;
     var recentSteps30Minutes = profile.recentSteps30Minutes;
     var recentSteps60Minutes = profile.recentSteps60Minutes;
-    //variables B30 : forcer la basale en fonction des conditions
-    var b30upperLimit = profile.b30_upperBG;
-    var b30upperdelta = profile.b30_upperdelta;
+    var aimi_activity = countsteps === true && recentSteps5Minutes > 100 && recentSteps10Minutes > 200 || countsteps === true && recentSteps5Minutes >= 0 && recentSteps30Minutes >= 1000 ? true : false;
     // variables for deltas
-    var delta = getMedianDelta(glucose_status.delta);
-    var shortAvgDelta = glucose_status.short_avgdelta;
-    var longAvgDelta = glucose_status.long_avgdelta;
-
+        var delta = glucose_status.delta;
+        var shortAvgDelta = glucose_status.short_avgdelta;
+        var longAvgDelta = glucose_status.long_avgdelta;
+        var DeltaPctS = 1;
+        var DeltaPctL = 1;
+        var DeltaPctD = 1;
+        // Calculate percentage change in delta, short to now
+        if (glucose_status.short_avgdelta != 0) DeltaPctS = round(1 + ((glucose_status.delta - glucose_status.short_avgdelta) / Math.abs(glucose_status.short_avgdelta)),2);
+        if (glucose_status.long_avgdelta != 0) DeltaPctL = round(1 + ((glucose_status.delta - glucose_status.long_avgdelta) / Math.abs(glucose_status.long_avgdelta)),2);
+        if (glucose_status.short_avgdelta <= 0) DeltaPctD = round(1 - ((glucose_status.delta - glucose_status.long_avgdelta) / Math.abs(glucose_status.long_avgdelta)),2);
     if (currentTime) {
         deliverAt = new Date(currentTime);
     }
@@ -224,7 +204,6 @@ var determine_basal = function determine_basal(glucose_status, currenttemp, iob_
     var minAgo = round((systemTime - bgTime) / 60 / 1000 ,1);
 
     var bg = glucose_status.glucose;
-     bg = getMedianBG(bg);
     var noise = glucose_status.noise;
     var aimisafesensor = false;
     // 38 is an xDrip error state that usually indicates sensor failure
@@ -237,7 +216,7 @@ var determine_basal = function determine_basal(glucose_status, currenttemp, iob_
         rT.reason = "If current system time "+systemTime+" is correct, then BG data is too old. The last BG data was read "+minAgo+"m ago at "+bgTime;
     // if BG is too old/noisy, or is changing less than 1 mg/dL/5m for 45m, cancel any high temps and shorten any long zero temps
     //cherry pick from oref upstream dev cb8e94990301277fb1016c778b4e9efa55a6edbc
-    } else if ( bg > 60 && flatBGsDetected) {
+    } else if ( bg > 60 && glucose_status.delta == 0 && glucose_status.short_avgdelta > -1 && glucose_status.short_avgdelta < 1 && glucose_status.long_avgdelta > -1 && glucose_status.long_avgdelta < 1 && !isSaveCgmSource) {
         if ( glucose_status.last_cal && glucose_status.last_cal < 3 ) {
             rT.reason = "CGM was just calibrated";
             aimisafesensor = true;
@@ -246,9 +225,9 @@ var determine_basal = function determine_basal(glucose_status, currenttemp, iob_
             rT.reason = "Error: CGM data is unchanged for the past ~45m";
         }*/
     }
+    //cherry pick from oref upstream dev cb8e94990301277fb1016c778b4e9efa55a6edbc
 
-
-    if (bg <= 10 || bg === 38 || noise >= 3 || minAgo > 12 || minAgo < -5 || ( bg > 60 && flatBGsDetected )){
+    if (bg <= 10 || bg === 38 || noise >= 3 || minAgo > 12 || minAgo < -5  ) {//|| ( bg > 60 && glucose_status.delta == 0 && glucose_status.short_avgdelta > -1 && glucose_status.short_avgdelta < 1 && glucose_status.long_avgdelta > -1 && glucose_status.long_avgdelta < 1 ) && !isSaveCgmSource
         if (currenttemp.rate > basal) { // high temp is running
             rT.reason += ". Replacing high temp basal of "+currenttemp.rate+" with neutral temp of "+basal;
             rT.deliverAt = deliverAt;
@@ -323,24 +302,7 @@ var determine_basal = function determine_basal(glucose_status, currenttemp, iob_
             console.log("Basal unchanged: "+basal+"; ");
         }
     }
-if (profile.temptargetSet) {
-        //console.log("Temp Target set, not adjusting with autosens; ");
-    } else if (typeof autosens_data !== 'undefined' && autosens_data) {
-        if ( profile.sensitivity_raises_target && autosens_data.ratio < 1 || profile.resistance_lowers_target && autosens_data.ratio > 1 ) {
-            // with a target of 100, default 0.7-1.2 autosens min/max range would allow a 93-117 target range
-            min_bg = round((min_bg - 60) / autosens_data.ratio) + 60;
-            max_bg = round((max_bg - 60) / autosens_data.ratio) + 60;
-            var new_target_bg = round((target_bg - 60) / autosens_data.ratio) + 60;
-            // don't allow target_bg below 80
-            new_target_bg = Math.max(80, new_target_bg);
-            if (target_bg === new_target_bg) {
-                console.log("target_bg unchanged: "+new_target_bg+"; ");
-            } else {
-                console.log("target_bg from "+target_bg+" to "+new_target_bg+"; ");
-            }
-            target_bg = new_target_bg;
-        }
-    }
+
 
 
     if (typeof iob_data === 'undefined' ) {
@@ -383,22 +345,30 @@ if (profile.temptargetSet) {
         }
         //console.log(" (autosens ratio "+sensitivityRatio+")");
     }
-
-    //variable AIMI
-    var aimi_activity = countsteps === true && recentSteps5Minutes > 100 && recentSteps10Minutes > 200 || countsteps === true && recentSteps5Minutes >= 0 && recentSteps30Minutes >= 1000 ? true : false;
-    var TDD = profile.tdd7Days === null || profile.tdd7Days === undefined ? profile.TDD : profile.key_tdd7;
+    /* ************************
+       ** TS AutoTDD code    **
+       ************************ */
+       console.error("--------------");
+       console.error("\n");
+       console.error( " AIMI-Variant Mathieu 3.2.0-dev-beta1-AIMI");
+       console.error("\n");
+       console.error("--------------");
+    var TDD = profile.TDD;
     var insulinDivisor = profile.insulinDivisor;
     var variable_sens = profile.variable_sens;
     var lastHourTIRLow = profile.lastHourTIRLow;
     var lastHourTIRAbove = profile.lastHourTIRAbove;
     var last2HourTIRAbove = profile.last2HourTIRAbove;
-    //var aimisensitivity = profile.aimisensitivity;
-    var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTime ) / 60000,1);
+    //var tddlastHaverage = profile.tddlastHaverage;
+    var aimisensitivity = profile.aimisensitivity;
     var AIMI_UAM = target_bg >= 130 || aimi_activity === true ? false : profile.enable_AIMI_UAM;
     var countSMB = meal_data.countSMB;
+    //var countSMBms = meal_data.countSMBms;
     var AIMI_IgnoreCOB = profile.key_use_AimiIgnoreCOB;
     var AIMI_COB = AIMI_IgnoreCOB ? 0 : meal_data.mealCOB;
     var AIMI_IOBpredBGbf = profile.key_use_AimiIOBpredBG;
+
+
     var lastbolusAge = round(( new Date(systemTime).getTime() - meal_data.lastBolusNormalTime ) / 60000,1);
     var enlog = "";
     var aimi_bg = bg;
@@ -410,8 +380,14 @@ if (profile.temptargetSet) {
     aimi_bg = (bg + (bg + glucose_status.delta))/2;
     aimi_delta = ((bg - aimi_bg) + glucose_status.delta)/2;
     }
+    //enlog += "aimi_bg : "+aimi_bg+", aimi_delta : "+aimi_delta+"\n";
+    /*var autoAIMIsmb = (iob_data.iob - tddlastHaverage) > 0 && lastHourTIRLow ===0 && AIMI_UAM && aimi_delta > 5 ? iob_data.iob - tddlastHaverage : 0;
+    enlog += "\nautoAIMIsmb : "+autoAIMIsmb+", ";*/
 
+    var iTime_Start_Bolus = profile.iTime_Start_Bolus;
+    var iTimeProfile = profile.iTime;
     var LastManualBolus = meal_data.lastBolusNormalUnits;
+    //var now = new Date().getHours();
     var date_now = new Date();
     var now = new Date();
     var nowdec = round(now.getHours() + now.getMinutes() / 60, 2);
@@ -420,67 +396,177 @@ if (profile.temptargetSet) {
     enlog += "nowminutes = " +nowminutes+" ; \n";
 
     //var circadian_sensitivity = 1;
-    var enable_circadian = profile.key_use_enable_circadian;
     var circadian_sensitivity = (0.00000379*Math.pow(nowminutes,5))-(0.00016422*Math.pow(nowminutes,4))+(0.00128081*Math.pow(nowminutes,3))+(0.02533782*Math.pow(nowminutes,2))-(0.33275556*nowminutes)+1.38581503;
-    var circadian_smb = round((0.00000379*delta*Math.pow(nowminutes,5))-(0.00016422*delta*Math.pow(nowminutes,4))+(0.00128081*delta*Math.pow(nowminutes,3))+(0.02533782*delta*Math.pow(nowminutes,2))-(0.33275556*delta*nowminutes)+1.38581503,2);
-
+        var circadian_smb = round((0.00000379*delta*Math.pow(nowminutes,5))-(0.00016422*delta*Math.pow(nowminutes,4))+(0.00128081*delta*Math.pow(nowminutes,3))+(0.02533782*delta*Math.pow(nowminutes,2))-(0.33275556*delta*nowminutes)+1.38581503,2);
+        /*var circadian_sensitivity = 1;
+        if (nowdec >= 0 && nowdec < 2){
+            //circadian_sensitivity = 1.4;
+            circadian_sensitivity = (0.09130*Math.pow(nowdec,3))-(0.33261*Math.pow(nowdec,2))+1.4;
+        } else if (nowdec >= 2 && nowdec < 3){
+             //circadian_sensitivity = 0.8;
+             circadian_sensitivity = (0.0869*Math.pow(nowdec,3))-(0.05217*Math.pow(nowdec,2))-(0.23478*nowdec)+0.8;
+        } else if (nowdec >= 3 && nowdec < 8){
+             //circadian_sensitivity = 0.8;
+             circadian_sensitivity = (0.0007*Math.pow(nowdec,3))-(0.000730*Math.pow(nowdec,2))-(0.0007826*nowdec)+0.6;
+        } else if (nowdec >= 8 && nowdec < 11){
+             //circadian_sensitivity = 0.6;
+             circadian_sensitivity = (0.001244*Math.pow(nowdec,3))-(0.007619*Math.pow(nowdec,2))-(0.007826*nowdec)+0.4;
+        } else if (nowdec >= 11 && nowdec < 15){
+             //circadian_sensitivity = 0.8;
+             circadian_sensitivity = (0.00078*Math.pow(nowdec,3))-(0.00272*Math.pow(nowdec,2))-(0.07619*nowdec)+0.8;
+        } else if (nowdec >= 15 && nowdec <= 22){
+             circadian_sensitivity = 1.0;
+        } else if (nowdec >= 22 && nowdec <= 24){
+            //circadian_sensitivity = 1.2;
+            circadian_sensitivity = (0.000125*Math.pow(nowdec,3))-(0.0015*Math.pow(nowdec,2))-(0.0045*nowdec)+1.2;
+        }*/
     circadian_sensitivity = round(circadian_sensitivity,2);
+    enlog += "circadian_sensitivity : "+circadian_sensitivity+"\n";
+
     var iTimeActivation = AIMI_UAM && aimisafesensor === false ? true : false;
     var insulinPeakTime = 60;
     // add 30m to allow for insulin delivery (SMBs or temps)
     insulinPeakTime = 90;
-    insulinPeakTime = enable_circadian === true ? insulinPeakTime * circadian_sensitivity : insulinPeakTime;
+    insulinPeakTime = iTimeActivation && bg > 100 ? insulinPeakTime * circadian_sensitivity : insulinPeakTime;
+    //enlog += " ; insulinPeakTime : "+insulinPeakTime+"\n";
 
+    var AIMI_BreakFastLight = profile.key_use_AIMI_BreakFastLight;
+    var AIMI_Power = profile.enable_AIMI_Power;
+    var AIMI_BL_StartTime = profile.key_AIMI_BreakFastLight_timestart;
+    var AIMI_BL_EndTime = profile.key_AIMI_BreakFastLight_timeend;
     var AIMI_lastBolusSMBUnits = meal_data.lastBolusSMBUnits;
+    var AIMI_BG_ACC = glucose_status.delta / glucose_status.short_avgdelta;
+    enlog += "\nAIMI_BG_ACC : "+AIMI_BG_ACC;
+    enlog += "\n";
+    var b30Ko = false;
+    if (AIMI_BreakFastLight && profile.key_use_disable_b30_BFL){b30Ko = true;}
+    var AIMI_ACC = false;
+
+
+    if (AIMI_BG_ACC < 1 && glucose_status.delta >= 20){
+    AIMI_ACC = true;
+    enlog += "\nAIMI_ACC for fast sugar : "+AIMI_ACC;
+    }
+
+
+    if (nowdec >= AIMI_BL_EndTime){
+        AIMI_BreakFastLight = false;
+    }
+    enlog += "\nAIMI_BreakFastLight = "+AIMI_BreakFastLight;
+
 
     var C1 = bg + glucose_status.delta;
     var C2 = (profile.min_bg * 1.618)-(glucose_status.delta * 1.618);
 
-    enlog += "\nC1 = "+C1+" and C2 = "+C2;
 
+    if (AIMI_UAM && LastManualBolus >= iTime_Start_Bolus && lastbolusAge < iTimeProfile){
+
+            var iTime = lastbolusAge;
+            iTimeActivation = true;
+            enlog += "\niTime is running : "+iTime+" because manual bolus ("+LastManualBolus+") >= iTime_Starting_Bolus ("+iTime_Start_Bolus+")";
+
+    }else if (AIMI_UAM && LastManualBolus < iTime_Start_Bolus && lastbolusAge < iTimeProfile){
+
+                     iTime = iTimeProfile + 1 ;
+                     enlog += "\nA manual bolus was done, but iTime is disable, LastManualBolus < iTime_start_bolus : "+LastManualBolus+"<"+iTime_Start_Bolus;
+
+    }
+    enlog += "\nC1 = "+C1+" and C2 = "+C2;
+    var UAMAIMIReason = "";
+    var aimismb = true;
     var b30activity = iob_data.iob - iob_data.basaliob;
     console.log("\nb30activity : "+round(b30activity,2)+" ; ");
 
+   if (delta <= b30upperdelta && bg < b30upperLimit && iTime > 180){
+       aimismb = false;
+       }else if (bg < 100 && iTime > 180){
+       aimismb = false;
+       }
 
-    basal = enable_circadian === true ? basal / circadian_sensitivity : basal;
-    basal = Math.max(profile.current_basal * 0.5,basal);
-    enlog += enable_circadian === true ? "Basal circadian_sensitivity factor : "+basal+"\n" : "";
+    if (meal_data.countBolus ===1 && nowdec >=5 && nowdec <= 11 && AIMI_IOBpredBGbf){
+    var BFIOB = true;
+    }else{
+    var BFIOB = false;
+    }
+    if (BFIOB===true && profile.extendedsmbCount === 1 && delta > 0){
+        rT.reason += ". force basal because iTime is running and BFIOB is enable :"+(basal*10/60)*60+" U";
+        rT.temp = 'absolute';
+        rT.duration = 60;
+        rate = round_basal(basal*10,profile);
+        rT.rate = rate;
+        rT.reason += ", "+currenttemp.duration + "m@" + (currenttemp.rate) + " Force Basal AIMI BFIOB";
+        return tempBasalFunctions.setTempBasal(rate, 60, profile, rT, currenttemp);
 
-    if (lastbolusAge < profile.b30_duration && LastManualBolus >= 0){
-         rT.reason += ". force basal because iTime is running and lesser than "+profile.b30_duration+" minutes : "+(profile.current_basal*10/60)*profile.b30_duration+" U, remaining time : " +(profile.b30_duration - lastbolusAge);
-         rT.temp = 'absolute';
-         rT.deliverAt = deliverAt;
-         rT.duration = profile.b30_duration;
-         rate = round_basal(profile.current_basal*10,profile);
-         rT.rate = rate;
-         rT.reason += ", "+currenttemp.duration + "m@" + (currenttemp.rate) + " Force Basal AIMI";
-         //return tempBasalFunctions.setTempBasal(basal*10, profile.b30_duration, profile, rT, currenttemp);
-         return tempBasalFunctions.setTempBasal(rate, 30, profile, rT, currenttemp);
-     }else if(lastbolusAge > profile.key_mbi &&  meal_data.countSMB40 === 2 && glucose_status.delta >0 && circadian_smb > (-2) && circadian_smb < 1){
-         rT.reason += ". force basal because you receive 2 SMB : 10 minutes" +(profile.current_basal*delta/60)*10;
-         rT.deliverAt = deliverAt;
-         rT.temp = 'absolute';
-         rT.duration = 30;
-         rate = round_basal(profile.current_basal*delta,profile);
-         rT.rate = rate;
-         rT.reason += ", "+currenttemp.duration + "m@" + (currenttemp.rate) + " Force Basal AIMI";
-         return tempBasalFunctions.setTempBasal(rate, 30, profile, rT, currenttemp);
-     }else if(lastbolusAge > profile.key_mbi &&  bg < 130 &&  bg > 70 && glucose_status.delta > 0 && circadian_smb > (-2) && circadian_smb < 1){
-               rT.reason += ". force basal because bg < 130 and the rise is small" +(profile.current_basal*delta/60)*10;
-               rT.deliverAt = deliverAt;
-               rT.temp = 'absolute';
-               rT.duration = 30;
-               rate = round_basal(profile.current_basal*delta,profile);
-               rT.rate = rate;
-               rT.reason += ", "+currenttemp.duration + "m@" + (currenttemp.rate) + " Force Basal AIMI";
-               return tempBasalFunctions.setTempBasal(rate, 30, profile, rT, currenttemp);
+        }else if (iTime < profile.b30_duration && meal_data.countBolus === 1){
+     rT.reason += ". force basal because iTime is running and lesser than "+profile.b30_duration+" minutes : "+(profile.current_basal*10/60)*profile.b30_duration+" U, remaining time : " +(profile.b30_duration - iTime);
+     rT.temp = 'absolute';
+     rT.duration = profile.b30_duration;
+     rate = round_basal(basal*10,profile);
+     rT.rate = rate;
+     rT.reason += ", "+currenttemp.duration + "m@" + (currenttemp.rate) + " Force Basal AIMI";
+     return tempBasalFunctions.setTempBasal(rate, 30, profile, rT, currenttemp);
+
+     }else if (iTimeActivation === true && meal_data.countSMB40 === 2 && !AIMI_BreakFastLight && delta > 0 && circadian_smb > (-2) && circadian_smb < 1){
+           rT.reason += ". force basal because you receive 2 time max smb size : 10 minutes" +(profile.current_basal*delta/60)*20;
+            rT.temp = 'absolute';
+            rT.duration = 20;
+            rate = round_basal(basal*delta,profile);
+            rT.rate = rate;
+            rT.reason += ", "+currenttemp.duration + "m@" + (currenttemp.rate) + " Force Basal AIMI";
+            return tempBasalFunctions.setTempBasal(rate, 30, profile, rT, currenttemp);
+
+    }else if (iTimeActivation === true && profile.enable_AIMI_protein && delta > 0 && iTime >= profile.b30_protein_start && iTime < (profile.b30_protein_start+profile.b30_protein_duration) && !AIMI_BreakFastLight && bg > 80){
+             rT.reason += ". force basal because you enable B30 Proteins : "+profile.b30_protein_duration+"10 minutes" +(basal*(profile.b30_protein_percent / 100)/60)*10;
+             rT.temp = 'absolute';
+             rT.duration = profile.b30_protein_duration;
+             rate = round_basal(basal*(profile.b30_protein_percent / 100),profile);
+             rT.rate = rate;
+             rT.reason += ", "+currenttemp.duration + "m@" + (currenttemp.rate) + " Force Basal AIMI";
+             return tempBasalFunctions.setTempBasal(rate, profile.b30_protein_duration, profile, rT, currenttemp);
+
+     }
+     if (microBolusAllowed && iTimeActivation && iTime > profile.b30_duration && iTime < (profile.b30_duration + 15) && meal_data.extendedsmbCount < 1){
+            rT.units = LastManualBolus;
+            rT.reason += "Extended Bolus" + rT.units + "U. ";
+            return rT;
      }
 
+     if (profile.enable_AIMI_b30_bolus && iTime > profile.b30_bolus_duration && iTime <= (profile.b30_bolus_duration + 15) && profile.b30bolus ===0 ){
+                 rT.units = (LastManualBolus * profile.b30_bolus)/100;
+                 rT.reason += "B30 Bolus" + rT.units + "U. Event was programmed at " + profile.b30_bolus_duration + " minutes after the manual bolus.";
+                 return rT;
+    }
+
+
+
+        basal = iTimeActivation && bg > 100 && aimi_activity === false ? basal / circadian_sensitivity : basal;
+        basal = Math.max(profile.current_basal * 0.5,basal);
+        enlog += "Basal circadian_sensitivity factor : "+basal+"\n";
     if ( meal_data.TDDAIMI3 ){
-        var currentTIRLow = round(meal_data.currentTIRLow,2);
-        var currentTIRinRange = round(meal_data.currentTIRRange,2);
-        var currentTIRAbove = round(meal_data.currentTIRAbove,2);
+        var statTirBelow = meal_data.StatLow7;
+        //var statinrange = meal_data.StatInRange7;
+        var currentTIRLow = meal_data.currentTIRLow;
+        var CurrentTIRinRange = meal_data.currentTIRRange;
+        var CurrentTIRAbove = meal_data.currentTIRAbove;
+
+
         enlog +="TDD  : "+TDD+"\n";
+
+        //var smbTDD = 0;
+
+        var AIMI_BasalAv3 = (meal_data.TDDAIMIBASAL3/24);
+        var AIMI_BasalAv7 = (meal_data.TDDAIMIBASAL7/24);
+        AIMI_BasalAv7 -= (AIMI_BasalAv7 * (statTirBelow/100) * 1.618);
+        AIMI_BasalAv3 -= (AIMI_BasalAv3 * (statTirBelow/100) * 1.618);
+        //enlog += "###Basal average 7 days : "+AIMI_BasalAv7+"### \n";
+        //enlog += "###Basal average 3 days : "+AIMI_BasalAv3+"### \n";
+        var AIMI_Basal = (AIMI_BasalAv3 + AIMI_BasalAv7) / 2;
+        AIMI_Basal = round((AIMI_Basal + (AIMI_Basal*0.65))/2,2);
+        enlog += "###AIMI Basal proposition : "+AIMI_Basal+"### \n";
+        //enlog += "AIMI basal proposal for the day : "+AIMI_Basal+", AIMI basal proposal for the night : "+AIMI_Basal*0.65+" \n";
+
+
+
     if (meal_data.TDDAIMI3){
     var TDDaverage3 = meal_data.TDDAIMI3;
     }else{
@@ -489,24 +575,43 @@ if (profile.temptargetSet) {
     var MagicNumber = profile.sens*TDDaverage3*profile.min_bg;
     enlog += "TDDaverage3("+TDDaverage3+") and MagicNumber("+MagicNumber+")\n";
     sens = variable_sens;
+    //sens = Math.max(profile.sens/2,sens);
     sens = lastHourTIRLow > 0 ? sens*1.618 : sens;
+    //sens = C1 < C2 && !iTimeActivation ? Math.max(profile.sens/2,profile.sens * circadian_sensitivity) : sens;
     sens = glucose_status.delta < 0 && iTimeActivation && aimi_bg < 150 ? profile.sens : sens;
-    enlog += lastHourTIRLow > 0 || C1 < C2 && !iTimeActivation || iTimeActivation && glucose_status.delta > 0 ? " ; sens TDD after adjustment depending of C1-C2-aimi-TIRLow : "+sens+ " \n" : " \n";
+    //sens = iTime < 100 && glucose_status.delta > 0 ? sens / 2 : sens;
+    //enlog +=" ; Current sensitivity TDD is " +sens_currentBG * circadian_sensitivity+" based on currentbg\n";
+    enlog += lastHourTIRLow > 0 || C1 < C2 && !iTimeActivation || iTimeActivation && glucose_status.delta > 0 ? " ; sens TDD after adjustment depending of C1-C2-iTime-TIRLow : "+sens+ " \n" : " \n";
     }else{
-    if (enable_circadian === true){
     sens = iTimeActivation && glucose_status.delta > 15 ? profile.sens / 2 : Math.max(profile.sens * circadian_sensitivity,profile.sens/2);
     enlog += iTimeActivation && glucose_status.delta > 15 ? "ISF from profile divide by 2 because iTimeActivation && glucose_status.delta > 15 :"+sens+" \n" : "######--TDD and TIR don't have data, the ISF come from the profile--######\n";
-    }else{
-    sens = iTimeActivation && glucose_status.delta > 15 ? profile.sens / 2 : profile.sens;
-    enlog += iTimeActivation && glucose_status.delta > 15 ? "ISF from profile divide by 2 because iTimeActivation && glucose_status.delta > 15 :"+sens+" \n" : "######--TDD and TIR don't have data, the ISF come from the profile--######\n";
-    }
    }
+
+
+
+
+    //var eRatio = round((bg/0.16)/sens,2);
+
     var mineRatio = profile.carb_ratio/2;
     var eRatio = round(Math.max(mineRatio,sens / 13.2),2);
+
+
+    var HypoPredBG = round( bg - (iob_data.iob * sens) ) + round( 60 / 5 * ( minDelta - round(( -iob_data.activity * sens * 5 ), 2)));
+    var HyperPredBG = round( bg - (iob_data.iob * sens) ) + round( 60 / 5 * ( minDelta - round(( -iob_data.activity * sens * 5 ), 2)));
+    var TriggerPredSMB = round( bg - (iob_data.iob * sens) ) + round( 240 / 5 * ( minDelta - round(( -iob_data.activity * sens * 5 ), 2)));
     var csf = profile.sens / profile.carb_ratio ;
+
+    var EBG =Math.max(0, round((0.02 * glucose_status.delta * glucose_status.delta) + (0.58 * glucose_status.long_avgdelta) + bg,2));
+    //var EBG180 = Math.max(0,round((0.02 * glucose_status.delta * glucose_status.delta) + (0.58 * glucose_status.long_avgdelta) + HyperPredBGTest2,2));
+    //var EBG120 = Math.max(0,round((0.02 * glucose_status.delta * glucose_status.delta) + (0.58 * glucose_status.long_avgdelta) + HyperPredBGTest3,2));
+    var EBG60 = Math.max(0,round((0.02 * glucose_status.delta * glucose_status.delta) + (0.58 * glucose_status.long_avgdelta) + HyperPredBG,2));
+    var REBG = round(EBG / min_bg,2);
+    var REBG60 = round(EBG60 / min_bg,2);
+    var EBX = Math.max(0,round(Math.min(EBG,EBG60),2));
+    var REBX = Math.max(0.5,round(Math.min(REBG60,REBG),2));
     var Hypo_ratio = 1;
 
-     if (currentTIRLow > 10 || circadian_smb > (-3) ){
+     if (currentTIRLow > 10 || AIMI_BreakFastLight || circadian_smb > (-3) ){
      var hypo_target = 100 * Math.max(1,circadian_sensitivity);
      enlog += "target_bg from "+target_bg+" to "+hypo_target+" because currentTIRLow > 5 : "+currentTIRLow+"\n";
 
@@ -517,8 +622,19 @@ if (profile.temptargetSet) {
      enlog += "C2 change because of hypo_target : "+C2+"\n";
      halfBasalTarget = 160;
      var c = halfBasalTarget - normalTarget;
+     if (meal_data.TDDAIMI3){
+     sensitivityRatio = c/(c+target_bg-normalTarget);
+     var sensitivityTDD = Math.max(0.5,aimisensitivity);
+     enlog += "sensitivityTDD : "+sensitivityTDD+"\n";
+     //sensitivityRatio = REBX;
+     // limit sensitivityRatio to profile.autosens_max (1.2x by default)
+     sensitivityRatio = Math.min(sensitivityRatio, profile.autosens_max)
+     sensitivityRatio = Math.min(sensitivityTDD, sensitivityRatio);
+     }else{
      sensitivityRatio = c/(c+target_bg-normalTarget);
      sensitivityRatio = Math.min(sensitivityRatio, profile.autosens_max);
+
+     }
      sensitivityRatio = round(sensitivityRatio,2);
      enlog +="Sensitivity ratio set to "+sensitivityRatio+" based on temp target of "+target_bg+";\n";
      sens = target_bg > min_bg * 1.10 ? sens * 1.618 : sens;
@@ -529,7 +645,98 @@ if (profile.temptargetSet) {
      } else {
          enlog +="Basal unchanged: "+basal+";\n";
      }
-     }
+     }else if (!profile.temptargetSet && HypoPredBG <= 125 && profile.sensitivity_raises_target && C1 < C2){//&& glucose_status.delta <= 0
+
+        var hypo_target = round(Math.min(200, min_bg + (EBG - min_bg)/3 ),0);
+        hypo_target *= Math.max(1,circadian_sensitivity);
+        hypo_target = Math.min(144,hypo_target);
+       if (EBG <= 120 && HypoPredBG < 90) {
+            hypo_target = 130 * Math.max(1,circadian_sensitivity);
+            hypo_target = Math.min(144,hypo_target);
+
+            enlog +="target_bg from "+target_bg+" to "+hypo_target+" because EBG is lesser than 100 and HypoPredBG < 80 : "+EBG+"; \n";
+        }else if (EBG60 <= 90 && EBG60 >0 ) {
+            hypo_target = 100 *Math.max(1,circadian_sensitivity);
+            hypo_target = Math.min(110,hypo_target);
+            enlog +="target_bg from "+target_bg+" to "+hypo_target+" because EBG60 is lesser than 90: "+EBG60+";\n ";
+        }else if (target_bg === hypo_target) {
+            enlog +="target_bg unchanged: "+hypo_target+";\n";
+        }/*else{
+            hypo_target = 100;
+            enlog +="target_bg from "+target_bg+" to "+hypo_target+" because HypoPredBG is lesser than 125 : "+HypoPredBG+";\n";
+        }*/
+        target_bg = hypo_target + circadian_smb;
+        halfBasalTarget = 160;
+        var c = halfBasalTarget - normalTarget;
+        //sensitivityRatio = c/(c+target_bg-normalTarget);
+        if (meal_data.TDDAIMI3){
+         sensitivityRatio = c/(c+target_bg-normalTarget);
+         var sensitivityTDD = Math.max(0.5,aimisensitivity);
+         enlog += "sensitivityTDD : "+sensitivityTDD+"\n";
+         //sensitivityRatio = REBX;
+         // limit sensitivityRatio to profile.autosens_max (1.2x by default)
+         sensitivityRatio = Math.min(sensitivityRatio, profile.autosens_max)
+         sensitivityRatio = Math.min(sensitivityTDD, sensitivityRatio);
+         }else{
+         sensitivityRatio = c/(c+target_bg-normalTarget);
+         sensitivityRatio = Math.min(sensitivityRatio, profile.autosens_max);
+
+         }
+
+        sensitivityRatio = round(sensitivityRatio,2);
+        enlog +="Sensitivity ratio set to "+sensitivityRatio+" based on temp target of "+target_bg+";\n";
+        sens = target_bg > min_bg * 1.10 ? sens * 1.618 : sens;
+        basal = circadian_smb > 5 ? profile.current_basal / 2 : profile.current_basal * sensitivityRatio;
+        basal = round_basal(basal, profile);
+        if (basal !== profile_current_basal) {
+            enlog +="Adjusting basal from "+profile_current_basal+" to "+basal+";\n";
+        } else {
+            enlog +="Basal unchanged: "+basal+";\n";
+        }
+    } else if (!profile.temptargetSet && HyperPredBG >= 180 && profile.resistance_lowers_target) {
+
+        var hyper_target = round(Math.max(80, min_bg - (bg - min_bg)/3 ),0);
+        hyper_target *= Math.min(circadian_sensitivity,1);
+        hyper_target = Math.max(hyper_target,80);
+        if (target_bg === hyper_target) {
+            enlog +="target_bg unchanged: "+hyper_target+";\n";
+        } else {
+            enlog +="target_bg from "+target_bg+" to "+hyper_target+" because HyperPredBG > 180 : "+HyperPredBG+" ;\n";
+        }
+        target_bg = hyper_target+circadian_smb;
+        C1 = bg + (glucose_status.delta*1.618);
+        C2 = target_bg * 1.618;
+        halfBasalTarget = 160;
+        var c = halfBasalTarget - normalTarget;
+        //sensitivityRatio = c/(c+target_bg-normalTarget);
+        if (meal_data.TDDAIMI3){
+             sensitivityRatio = c/(c+target_bg-normalTarget);
+             var sensitivityTDD = Math.max(0.5,aimisensitivity);
+             enlog += "sensitivityTDD : "+sensitivityTDD+"\n";
+             //sensitivityRatio = REBX;
+             // limit sensitivityRatio to profile.autosens_max (1.2x by default)
+             sensitivityRatio = Math.min(sensitivityRatio, profile.autosens_max);
+             sensitivityRatio = Math.min(sensitivityTDD, sensitivityRatio);
+             sensitivityRatio = glucose_status.delta < 0 && sensitivityRatio > 1 ? 1 : sensitivityRatio;
+             }else{
+             sensitivityRatio = c/(c+target_bg-normalTarget);
+             sensitivityRatio = Math.min(sensitivityRatio, profile.autosens_max);
+             sensitivityRatio = glucose_status.delta < 0 && sensitivityRatio > 1 ? 1 : sensitivityRatio;
+
+             }
+        sensitivityRatio = round(sensitivityRatio,2);
+        enlog +="Sensitivity ratio set to "+sensitivityRatio+" based on temp target of "+target_bg+";\n";
+        if (iTimeActivation){
+        basal = profile.current_basal * sensitivityRatio;
+        basal = round_basal(basal, profile);
+
+        if (basal !== profile_current_basal) {
+            enlog +="Adjusting basal from "+profile_current_basal+" to "+basal+";\n";
+        } else {
+            enlog +="Basal unchanged: "+basal+";\n";
+        }
+        }
+    }
 
     //set activity behavior
        if (aimi_activity === true){
@@ -848,7 +1055,7 @@ if (profile.temptargetSet) {
             // for IOBpredBGs, predicted deviation impact drops linearly from current deviation down to zero
             // over 60 minutes (data points every 5m)
             var predDev = ci * ( 1 - Math.min(1,IOBpredBGs.length/(60/5)) );
-            if (!TDD){
+            if (!meal_data.TDDAIMI3){
             IOBpredBG = IOBpredBGs[IOBpredBGs.length-1] + predBGI + predDev;
              //IOBpredBG = IOBpredBGs[IOBpredBGs.length-1] + (round(( -iobTick.activity * (1800 / ( TDD * (Math.log((Math.max( IOBpredBGs[IOBpredBGs.length-1],39) / insulinDivisor ) + 1 ) ) )) * 5 ),2));
             }else{
@@ -862,12 +1069,12 @@ if (profile.temptargetSet) {
             IOBpredBG = IOBpredBGs[IOBpredBGs.length-1] + insulin_activity;
             }
             // calculate predBGs with long zero temp without deviations
-            if ( !TDD){
+            if ( !meal_data.TDDAIMI3){
             var ZTpredBG = ZTpredBGs[ZTpredBGs.length-1] + predZTBGI;
             //var ZTpredBG = ZTpredBGs[ZTpredBGs.length-1] + (round(( -iobTick.iobWithZeroTemp.activity * (1800 / ( TDD * (Math.log(( Math.max(ZTpredBGs[ZTpredBGs.length-1],39) / insulinDivisor ) + 1 ) ) )) * 5 ), 2));
             }else{
             // calculate insulin activity with zero temp
-            var insulin_activity = -iobTick.iobWithZeroTemp.activity * (1800 / (TDD * (Math.log((Math.max(ZTpredBGs[ZTpredBGs.length-1], 39) / insulinDivisor) + 1))));
+            insulin_activity = -iobTick.iobWithZeroTemp.activity * (1800 / (TDD * (Math.log((Math.max(ZTpredBGs[ZTpredBGs.length-1], 39) / insulinDivisor) + 1))));
 
             // round to 2 decimal places and multiply by 5
             insulin_activity = round(insulin_activity * 5, 2);
@@ -893,25 +1100,28 @@ if (profile.temptargetSet) {
             var aCOBpredBG = aCOBpredBGs[aCOBpredBGs.length-1] + predBGI + Math.min(0,predDev) + predACI;
             // for UAMpredBGs, predicted carb impact drops at slopeFromDeviations
             // calculate predicted CI from UAM based on slopeFromDeviations
+            //var predUCIslope = iTime < iTimeProfile ? Math.max(0, uci + ( IOBpredBGs.length*slopeFromDeviations) ) : Math.max(0, uci + (UAMpredBGs.length*slopeFromDeviations) );
             var predUCIslope = Math.max(0, uci + (UAMpredBGs.length*slopeFromDeviations) );
             // if slopeFromDeviations is too flat, predicted deviation impact drops linearly from
             // current deviation down to zero over 3h (data points every 5m)
+            //var predUCImax = iTime < iTimeProfile ? Math.max(0, uci * ( 1 - IOBpredBGs.length/Math.max(3*60/5,1) ) ) : Math.max(0, uci * ( 1 - UAMpredBGs.length/Math.max(3*60/5,1) ) );
             var predUCImax = Math.max(0, uci * ( 1 - UAMpredBGs.length/Math.max(3*60/5,1) ) );
             //console.error(predUCIslope, predUCImax);
             // predicted CI from UAM is the lesser of CI based on deviationSlope or DIA
             var predUCI = Math.min(predUCIslope, predUCImax);
             if(predUCI>0) {
                 //console.error(UAMpredBGs.length,slopeFromDeviations, predUCI);
+                //UAMduration=iTime < iTimeProfile ? round((IOBpredBGs.length+1)*5/60,1) : round((UAMpredBGs.length+1)*5/60,1);
                 UAMduration = round((UAMpredBGs.length+1)*5/60,1);
             }
-            if (!TDD){
+            if (!meal_data.TDDAIMI3){
             UAMpredBG = UAMpredBGs[UAMpredBGs.length-1] + predBGI + Math.min(0, predDev) + predUCI;
-
+            //UAMpredBG = BFIOB || AIMI_UAM === false ? IOBpredBGs[IOBpredBGs.length-1] + (round((-iobTick.activity * (1800 / ( TDD * (Math.log((Math.max( IOBpredBGs[IOBpredBGs.length-1],39) / insulinDivisor ) + 1 ) ) )) * 5 ),2)) : UAMpredBGs[UAMpredBGs.length-1] + (round(( -iobTick.activity * (1800 / ( TDD * (Math.log(( Math.max(UAMpredBGs[UAMpredBGs.length-1],39) / insulinDivisor ) + 1 ) ) )) * 5 ),2)) + Math.min(0, predDev) + predUCI;
             //console.error(predBGI, predCI, predUCI);
             }else{
-            if (AIMI_UAM === false || profile.accelerating_up === 0 && bg < 140) {
+            if (BFIOB || AIMI_UAM === false) {
                 // calculate insulin activity
-                 var insulin_activity = -iobTick.activity * (1800 / (TDD * (Math.log((Math.max(IOBpredBGs[IOBpredBGs.length-1], 39) / insulinDivisor) + 1))));
+                insulin_activity = -iobTick.activity * (1800 / (TDD * (Math.log((Math.max(IOBpredBGs[IOBpredBGs.length-1], 39) / insulinDivisor) + 1))));
 
                 // round to 2 decimal places and multiply by 5
                 insulin_activity = round(insulin_activity * 5, 2);
@@ -920,7 +1130,7 @@ if (profile.temptargetSet) {
                 UAMpredBG = IOBpredBGs[IOBpredBGs.length-1] + insulin_activity;
             } else {
                 // calculate insulin activity
-                var insulin_activity = -iobTick.activity * (1800 / (TDD * (Math.log((Math.max(UAMpredBGs[UAMpredBGs.length-1], 39) / insulinDivisor) + 1))));
+                insulin_activity = -iobTick.activity * (1800 / (TDD * (Math.log((Math.max(UAMpredBGs[UAMpredBGs.length-1], 39) / insulinDivisor) + 1))));
 
                 // round to 2 decimal places and multiply by 5
                 insulin_activity = round(insulin_activity * 5, 2);
@@ -964,12 +1174,14 @@ if (profile.temptargetSet) {
             //console.log("insulinPeakTime : "+insulinPeakTime+" and insulinPeak5m : "+insulinPeak5m);
             // wait 90m before setting minIOBPredBG
             if ( IOBpredBGs.length > insulinPeak5m && (IOBpredBG < minIOBPredBG) ) { minIOBPredBG = round(IOBpredBG); }
+            //if ( iTime < iTimeProfile && IOBpredBGs.length > insulinPeak5m && (IOBpredBG < minIOBPredBG) ) { minIOBPredBG = round(UAMpredBG); }
             if ( IOBpredBGs.length > insulinPeak5m && (IOBpredBG < minIOBPredBG) ) { minIOBPredBG = round(UAMpredBG); }
             if ( IOBpredBG > maxIOBPredBG ) { maxIOBPredBG = IOBpredBG; }
 
             // wait 85-105m before setting COB and 60m for UAM minPredBGs
             if ( (cid || remainingCIpeak > 0) && COBpredBGs.length > insulinPeak5m && (COBpredBG < minCOBPredBG) ) { minCOBPredBG = round(COBpredBG); }
             if ( (cid || remainingCIpeak > 0) && COBpredBG > maxIOBPredBG ) { maxCOBPredBG = COBpredBG; }
+            //if ( iTime < iTimeProfile && enableUAM && UAMpredBGs.length > 6 && (UAMpredBG < minUAMPredBG) || enableUAM && UAMpredBGs.length > 12 && (UAMpredBG < minUAMPredBG) ) { minUAMPredBG = round(UAMpredBG); }
             if ( enableUAM && UAMpredBGs.length > 12 && (UAMpredBG < minUAMPredBG) ) { minUAMPredBG = round(UAMpredBG); }
             if ( enableUAM && UAMpredBG > maxIOBPredBG ) { maxUAMPredBG = UAMpredBG; }
             //console.log("insulinPeakTime : "+insulinPeakTime+" and insulinPeak5m : "+insulinPeak5m+" prediction : "+curvepred * 5+" minutes");
@@ -1048,12 +1260,14 @@ if (profile.temptargetSet) {
 
     console.error("UAM Impact:",uci,"mg/dL per 5m; UAM Duration:",UAMduration,"hours");
     console.log("EventualBG is" +eventualBG+" ;");
-
+    //var TrigPredAIMI =  (TriggerPredSMB_future_sens_60 + TriggerPredSMB_future_sens_35) / 1.618;
     var AIMI_ISF = profile.key_use_AimiUAM_ISF;
-    if (TDD){
+    if ( meal_data.TDDAIMI3 ){
+        //var future_sens = ( 277700 / (TDD * eventualBG));
+        //var future_sens = round(future_sens,1);
+        if(AIMI_ISF && AIMI_UAM && !AIMI_BreakFastLight && !iTimeActivation){
 
-        if(AIMI_ISF && AIMI_UAM && !iTimeActivation){
-
+            //var future_sens = ( 277700 / (TDD * TrigPredAIMI));
             var future_sens = ( (MagicNumber/1.618) / (TDD * bg));
             console.log("*****Future state sensitivity is " +future_sens+" based on bg("+bg+")\n");
 
@@ -1074,6 +1288,68 @@ if (profile.temptargetSet) {
     round(future_sens);
     future_sens = iTimeActivation && glucose_status.delta < 0 && bg < 130 ? profile.sens : round(future_sens);
 var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTime ) / 60000,1);
+var TriggerPredSMB_future_sens_60 = round( bg - (iob_data.iob * future_sens) ) + round( 60 / 5 * ( minDelta - round(( -iob_data.activity * future_sens * 5 ), 2)));
+var TriggerPredSMB_future_sens_45 = Math.max(round( bg - (iob_data.iob * future_sens) ) + round( 45 / 5 * ( minDelta - round(( -iob_data.activity * future_sens * 5 ), 2))),39);
+var TriggerPredSMB_future_sens_35 = round( bg - (iob_data.iob * future_sens) ) + round( 35 / 5 * ( minDelta - round(( -iob_data.activity * future_sens * 5 ), 2)));
+var TrigPredAIMI =  (TriggerPredSMB_future_sens_60 + TriggerPredSMB_future_sens_35) / 1.618;
+if (TriggerPredSMB_future_sens_45 < 100 && iTimeActivation && aimi_bg < 150 && nowdec >= AIMI_BL_EndTime && iTime > 180 && iTime > 180) {
+AIMI_BreakFastLight = true;
+AIMI_BL_StartTime = nowdec;
+AIMI_BL_EndTime = AIMI_BL_StartTime + 2;
+}
+
+UAMAIMIReason += " TrigPredAIMI : "+TrigPredAIMI+", TriggerPredSMB_future_sens_45 : "+TriggerPredSMB_future_sens_45+", TriggerPredSMB_future_sens_35 :"+TriggerPredSMB_future_sens_35+", ";
+if (AIMI_UAM && AIMI_BreakFastLight && nowdec >= AIMI_BL_StartTime && nowdec <= AIMI_BL_EndTime){
+
+    var future_sens = sens;
+    console.log("*****Future_sens is not use with light breakfast");
+
+}
+                console.error("\n");
+                console.log("--------------");
+                console.log(" 3.2.0-dev-i-AIMI-Variant Mathieu 04/03/23 ");
+                console.log(", UPDATE : UAM+ conditions change to check again if it's a rise");
+                console.log(", UPDATE2 : if calibration sensor, disable aimi");
+                console.log(", UPDATE3 : add a variable to manage the time between two smb differently when the rise is in accelerating mode");
+                console.log(", UPDATE4 : Merge milos 3.2.0-i");
+                console.log(", UPDATE5 : deccelerating_up = 1 interval will be 20 minutes and B30 action");
+                console.log("--------------");
+                if ( meal_data.TDDAIMI3 ){
+                console.error("TriggerPredSMB_future_sens_45 : ",TriggerPredSMB_future_sens_45," aimi_bg : ",aimi_bg," aimi_delta : ",aimi_delta);
+                console.error("\n");
+                console.error(" aimismb : ",aimismb," b30Ko : ",b30Ko," iTime : ",iTime," TDD : ",TDD," sensitivityRatio : ",sensitivityRatio);
+                console.error("\n");
+                console.error("\n");
+
+                console.log(enlog);
+                }
+
+                console.log("eRatio : "+eRatio);
+                console.log("-------------");
+                console.log("- TriggerPredSMB : "+TriggerPredSMB);
+                console.log("- TriggerPredSMB_future_sens_60 : "+TriggerPredSMB_future_sens_60);
+                console.log("- TriggerPredSMB_future_sens_45 : "+TriggerPredSMB_future_sens_45);
+                console.log("- TriggerPredSMB_future_sens_35 : "+TriggerPredSMB_future_sens_35);
+                console.log("- TrigPredAIMI : "+TrigPredAIMI);
+                console.log("- EBG : "+EBG+" ; REBG : "+REBG);
+                console.log("- EBG60 : "+EBG60+" ; REBG60 : "+REBG60);
+                console.log("- HypoPredBG : "+HypoPredBG+" ; HyperPredBG : "+HyperPredBG);
+                console.log("-------------");
+                console.log("- target_bg : "+target_bg);
+                console.log("- Sensitivity ratio set to "+sensitivityRatio+" based on temp target of"+target_bg);
+                console.log("- Adjusting basal from "+profile_current_basal+" to "+basal);
+                console.log("- Future state sensitivity is " +future_sens+" based on eventual bg");
+                console.log("-------------");
+                if ( meal_data.TDDAIMI3 ){
+                    if (iTimeActivation){
+                    console.log("- iTimeActivation : "+iTimeActivation);
+                    console.log("-------------");
+                    }
+                }
+
+
+    //console.error(insulinPeakTime, insulinPeak5m, profile.insulinPeakTime, profile.curve);
+    //console.log("curve prediction : "+curvepred);
 
     minIOBPredBG = Math.max(39,minIOBPredBG);
     minCOBPredBG = Math.max(39,minCOBPredBG);
@@ -1174,10 +1450,29 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
     if (maxCOBPredBG > bg && !AIMI_IgnoreCOB) {
         minPredBG = Math.min(minPredBG, maxCOBPredBG);
     }
+    // EXPERIMENT: minGuardBG prevents early prebolus with UAM force higher until SMB given when on or above target
+    /*if (iTimeActivation && delta >= 5) {
+    minGuardBG = (minGuardBG < threshold && bg > threshold ? threshold: minGuardBG);
+    }*/
+    var aimi_rise = 1, sens_predType = "NA" ;
+    if (iTimeActivation){
+        if (DeltaPctS > 1 && DeltaPctL > 1.5) sens_predType = "UAM+"; // with acceleration
+        if (UAMpredBG > 160 && bg < 140 && iTime < 180){
+        sens_predType = "UAM+"; // when predicted high and bg is lower
+        }else if (UAMpredBG >= 240 && bg < 160 && aimi_delta >= 8){
+        sens_predType = "UAM+";
+        }
+    }
+    if (sens_predType == "UAM+"){
+    aimi_rise = (bg <= 140 && UAMpredBG > bg ? 0.75 : 0.5);
+    aimi_rise = (bg > 140 && delta >= 15 ? 0.3 : aimi_rise);
+    minBG = Math.max(minPredBG,minGuardBG); // go with the largest value for UAM+
+    }
+
 
     rT.COB=meal_data.mealCOB;
     rT.IOB=iob_data.iob;
-    rT.reason="COB: " + round(meal_data.mealCOB, 1) + ", Dev: " + convert_bg(deviation, profile) + ", BGI: " + convert_bg(bgi, profile) + ", ISF: " + convert_bg(sens, profile) + ", CR: " + round(profile.carb_ratio, 2) + ", eRatio: " + eRatio + ", Target: " +convert_bg(target_bg, profile) + ",minPredBG " + convert_bg(minPredBG, profile) + ", minGuardBG " + convert_bg(minGuardBG, profile) + ", IOBpredBG " + convert_bg(lastIOBpredBG, profile);
+    rT.reason="COB: " + round(meal_data.mealCOB, 1) + ", Dev: " + convert_bg(deviation, profile) + ", BGI: " + convert_bg(bgi, profile) + ", ISF: " + convert_bg(sens, profile) + ", CR: " + round(profile.carb_ratio, 2) + ", eRatio: " + eRatio + ", BFL: " + AIMI_BreakFastLight + ", Target: " +convert_bg(target_bg, profile) + ",minPredBG " + convert_bg(minPredBG, profile) + ", minGuardBG " + convert_bg(minGuardBG, profile) + ", IOBpredBG " + convert_bg(lastIOBpredBG, profile);
     if (lastCOBpredBG > 0) {
         rT.reason += ", COBpredBG " + convert_bg(lastCOBpredBG, profile);
     }
@@ -1185,23 +1480,31 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
         rT.reason += ", UAMpredBG " + convert_bg(lastUAMpredBG, profile)
     }
     var dia = profile.dia;
-    var aimiDIA = round(dia * 60 * circadian_sensitivity,2);
 
-        rT.reason += "; ";
-        rT.reason += "================================================================="
-        rT.reason +=" , Variant AIMI-AI 08/09/2023 3.2.0-dev-l";
-        rT.reason += ", Glucose : BG("+bg+"), TargetBG("+target_bg+"), Delta("+delta+"), shortavg delta("+shortAvgDelta+"), long avg delta("+longAvgDelta+"), accelerating_up("+profile.accelerating_up+"), deccelerating_up("+profile.deccelerating_up+"), accelerating_down("+profile.accelerating_down+"),decelerating_down("+profile.deccelerating_down+"), stable("+profile.stable+")";
-        rT.reason += ", IOB : " + iob_data.iob + "U, tdd 7d/h(" + (profile.tdd7DaysPerHour || 0) + "), tdd 2d/h(" + (profile.tdd2DaysPerHour || 0) + "), tdd daily/h(" + (profile.tddPerHour || 0) + "), tdd 24h/h(" + (profile.tdd24HrsPerHour || 0) + "), TDD(" + (TDD || 0) + ")";
-        rT.reason += ", Dia : "+aimiDIA+" minutes, MaxSMB : "+profile.mss+" u ";
-        rT.reason += ", Profile : Hour of the day("+profile.hourOfDay+"), Weekend("+profile.weekend+"), recentSteps5Minutes("+profile.recentSteps5Minutes+"), recentSteps10Minutes("+profile.recentSteps10Minutes+"), recentSteps15Minutes("+profile.recentSteps15Minutes+"), recentSteps30Minutes("+profile.recentSteps30Minutes+"), recentSteps60Minutes("+profile.recentSteps60Minutes+"), recentSteps180Minutes("+profile.recentSteps180Minutes+")";
-        rT.reason += enable_circadian === true ? ", circadian_sensitivity : "+circadian_sensitivity : "";
-        rT.reason += ",circadian_smb test : "+circadian_smb;
-        rT.reason += ", TIR : "+currentTIRLow+" %, "+currentTIRinRange+" %, "+currentTIRAbove+"%";
-        rT.reason += (profile.modelai === true ? ", The ai model predicted SMB of "+profile.predictedSMB+"u after safety requirements and rounding to .05, requested "+profile.smbToGive+"u to the pump" : "The ai model need a file which is missing");
+    rT.reason += "; ";
+        rT.reason += "AIMI_UAM : "+AIMI_UAM;
+        rT.reason += "\naimi_bg : "+aimi_bg;
+        rT.reason += ", \naimi_delta : "+aimi_delta;
+        rT.reason += (meal_data.TDDAIMI3 ? (", TDD : "+round(TDD,1)) : "No TDD 3 days");
+        rT.reason += ", CurrentTIR : "+round(CurrentTIRinRange,1)+"%";
+        rT.reason += (currentTIRLow>5 ? (", current TIR low  : "+round(currentTIRLow,1)+"% may be you can try this basal value (to consider this value you have to get 7 days of data) : " +round(AIMI_Basal,2)) : (", current TIR low: "+round(currentTIRLow,1)+"%"));
+        rT.reason += (CurrentTIRAbove>10 ? (", current TIR above  : "+round(CurrentTIRAbove,1)+"% may be you can try this basal value (to consider this value you have to get 7 days of data): " +round(AIMI_Basal,2)) : (", current TIR above : "+round(CurrentTIRAbove,1)+"%"));
+        rT.reason += (iTimeActivation === true ? (", iTime : "+iTime+"/"+iTimeProfile) : (", iTime is disable"));
+        rT.reason += (profile.current_basal !== basal ? (", new basal : "+round(basal,2)+" instead of : "+profile.current_basal) : "");
+        rT.reason += ", circadian_sensitivity : "+circadian_sensitivity;
+        var aimiDIA = round(dia*60*circadian_sensitivity,2);
+        rT.reason += ", Dia : "+aimiDIA+" minutes ; ";
+        rT.reason += " aimismb : "+aimismb+" ; ";
+        rT.reason += "sens_predType : "+sens_predType+" ; ";
+        rT.reason += "circadian_smb test : "+circadian_smb+" ; ";
+
+
+    rT.reason += "\n3.2.0-dev-i-AIMI-Variant Mathieu 04/03/23 ";
+    rT.reason += "; ";
 
     // use naive_eventualBG if above 40, but switch to minGuardBG if both eventualBGs hit floor of 39
     //var carbsReqBG = naive_eventualBG;
-    var carbsReqBG = naive_eventualBG;
+    var carbsReqBG = iTimeActivation ? TriggerPredSMB_future_sens_45 : naive_eventualBG;
     if ( carbsReqBG < 40 ) {
         carbsReqBG = Math.min( minGuardBG, carbsReqBG );
     }
@@ -1246,9 +1549,15 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
         //rT.reason += "minGuardBG "+minGuardBG+"<"+threshold+": SMB disabled; ";
         enableSMB = false;
     }
-    if ( maxDelta > 0.20 * bg && iTimeActivation === false){
+    //var boosteat = glucose_status.delta + glucose_status.short_avgdelta + glucose_status.long_avgdelta;
+    if ( maxDelta > 0.20 * bg && iTimeActivation === false && !AIMI_BreakFastLight ){
         console.error("maxDelta",convert_bg(maxDelta, profile),"> 20% of BG",convert_bg(bg, profile),"- disabling SMB");
         rT.reason += "maxDelta "+convert_bg(maxDelta, profile)+" > 20% of BG "+convert_bg(bg, profile)+": SMB disabled; ";
+        enableSMB = false;
+    }
+    if (aimismb === false) {
+        console.error("aimismb :",aimismb," ; ");
+        rT.reason += "BG value is lesser than "+b30upperLimit+" aimismb is "+aimismb+" ; ";
         enableSMB = false;
     }
 
@@ -1444,7 +1753,7 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
         //console.error(lastBolusAge);
         //console.error(profile.temptargetSet, target_bg, rT.COB);
         // only allow microboluses with COB or low temp targets, or within DIA hours of a bolus
-        if (microBolusAllowed && enableSMB && bg > threshold) { //#MT AIMI
+        if (microBolusAllowed && enableSMB && aimi_bg > threshold) { //#MT AIMI
             // never bolus more than maxSMBBasalMinutes worth of basal
             var mealInsulinReq = round( AIMI_COB / eRatio ,3);
             var smb_max_range = profile.smb_max_range_extension;
@@ -1459,158 +1768,206 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
                             console.error("IOB",iob_data.iob,"> COB",AIMI_COB+"; mealInsulinReq =",mealInsulinReq);
                             if (profile.maxUAMSMBBasalMinutes) {
                                 console.error("profile.maxUAMSMBBasalMinutes:",profile.maxUAMSMBBasalMinutes,"profile.current_basal:",profile.current_basal);
-                                maxBolus = round(basal * profile.maxUAMSMBBasalMinutes / 60 ,1);
+                                maxBolus = round(smb_max_range * profile.current_basal * profile.maxUAMSMBBasalMinutes / 60 ,1);
                             } else {
                                 console.error("profile.maxUAMSMBBasalMinutes undefined: defaulting to 30m");
-                                maxBolus = round(basal * 30 / 60 ,1);
+                                maxBolus = round(smb_max_range * profile.current_basal * 30 / 60 ,1);
                             }
                         } else {
                             console.error("profile.maxSMBBasalMinutes:",profile.maxSMBBasalMinutes,"profile.current_basal:",profile.current_basal);
-                            maxBolus = round(basal * profile.maxSMBBasalMinutes / 60 ,1);
+                            maxBolus = round(smb_max_range * profile.current_basal * profile.maxSMBBasalMinutes / 60 ,1);
                         }
-
+            var AIMI_R = 161.8;
 
             var maxBolusTT = maxBolus;
-            var AIMI_UAM_CAP = profile.mss;
+            var AIMI_UAM_CAP = (profile.current_basal)*((profile.key_use_AIMI_CAP)/100);
             if (profile.key_use_enable_mssv){
             if (lastHourTIRLow >= 5 && circadian_smb > 0) {
             AIMI_UAM_CAP *= 0.7;
             }else if (circadian_smb > 3){
             AIMI_UAM_CAP *= 0.7;
-            }else if (circadian_smb < -1 && lastbolusAge > profile.key_mbi && now.getHours() > 8){
+            }else if (circadian_smb < -1){
             AIMI_UAM_CAP = (profile.current_basal)*((profile.key_use_AIMI_CAP+100)/100);
             }
             }
             rT.reason += ", Max Smb Size = "+AIMI_UAM_CAP;
+
+            /*var AIMI_UAM_CAP = lastHourTIRLow >= 5 && last2HourTIRAbove < 4 ? ((profile.key_use_AIMI_CAP/100) * basal) * 0.8 : (profile.key_use_AIMI_CAP/100) * basal;
+            AIMI_UAM_CAP = Math.min(AIMI_UAM_CAP,(profile.current_basal)*((profile.key_use_AIMI_CAP+100)/100));
+            rT.reason += ", Max Smb Size = "+AIMI_UAM_CAP;
+            }else{
+            var AIMI_UAM_CAP = (profile.current_basal)*((profile.key_use_AIMI_CAP)/100);
+            rT.reason += ", Max Smb Size = "+AIMI_UAM_CAP;
+            }*/
+
             var roundSMBTo = 1 / profile.bolus_increment;
             var nosmb = false;
-            var AI = false;
-
-            if (!profile.temptargetSet && delta > 0) {
-                insulinReq = ((1 + Math.sqrt(aimi_delta)) / 2);
-                var microBolus = Math.min(AIMI_UAM_CAP, insulinReq);
-
-                if (circadian_smb > -7) {
-                    if (profile.modelai === true && profile.smbToGive > 0) {
-                        microBolus = profile.smbToGive;
-                        AI = true;
-                        rT.reason += ", AIMI_AI is running.";
-                    } else if (profile.modelai === false) {
-                        microBolus = calculerMicroBolusSelonBG(minPredBG, eventualBG, target_bg, future_sens);
-                    }
-                } else if (profile.smbToGive < 0 && bg > 150 && profile.modelai === true && delta > 5 && meal_data.countSMB40 === 0) {
-                    microBolus = calculerMicroBolusSelonBG(minPredBG, eventualBG, target_bg, future_sens);
-                    rT.reason += ", ModelAI send a smb required " + profile.smbToGive + "u < 0 in a situation which normally need a smb, thanks to train the model again.";
-                } else if (circadian_smb <= -7) {
-                    microBolus = Math.min(AIMI_UAM_CAP, insulinReq * 2);
-                } else if (circadian_smb > -1 && bg > 200) {
-                    microBolus = calculerMicroBolusSelonBG(minPredBG, eventualBG, target_bg, future_sens);
-                }
-
-                microBolus = calculerMicroBolus(AIMI_UAM_CAP,microBolus, max_iob, iob_data);
-
-                if ((meal_data.MaxSMBcount >= 1 || meal_data.countSMB40 > 2 || meal_data.countSMB40 === 0) && profile.accelerating_up === 0 && lastbolusAge > profile.key_mbi) {
-                    var M1 = microBolus / 3;
-                    var M2 = microBolus / 2;
-                    var nosmb;
 
 
-                    if (bg > 170 && delta > 0) {
-                        microBolus = AIMI_lastBolusSMBUnits > M2 && meal_data.countSMB40 >= 3 ? M1 : M2;
-                    } else if (bg < 130 && delta <= 10) {
-                        microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? (nosmb = true) : M1;
-                    } else if (bg < 130 && delta > 10) {
-                        microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 7 && meal_data.countSMB40 >= 2 ? M1 : M2;
-                    } else if (bg > 130 && delta > 10) {
-                        microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 7 && meal_data.countSMB40 >= 2 ? M2 : microBolus;
-                    } else if (bg > 130 && delta <= 10) {
-                        microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? (nosmb = true) : M1;
-                    }
+            var limitIOB = Math.min((0.90*max_iob),((aimi_bg * 1.618) / sens));
+            console.log("####limitIOB : "+limitIOB+"\n")
 
-                    // Condition pour détecter rapidement une augmentation de la valeur bg
-                    if (bg > 150 && delta > 5) {
-                        microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 4 ? M2 : microBolus;
-                    }
-                    var lastFourValues = now.getHours() < 11 ? UAMpredBGs.slice(-7) : UAMpredBGs.slice(-3);
-                    var areValuesClose = true;
-                    var arerisingagain = true;
+            var bgDegree = round(aimi_bg / min_bg,2);
+            limitIOB *= bgDegree;
 
-                    for (var i = 0; i < lastFourValues.length; i++) {
-                        for (var j = i + 1; j < lastFourValues.length; j++) {
-                            var difference = Math.abs(lastFourValues[i] - lastFourValues[j]);
-                            if (difference > 5) {
-                                areValuesClose = false;
-                                break;
-                            }else if (difference < 10 && bg < 160){
-                                arerisingagain = false;
-                            }
-                        }
-                        if (!areValuesClose) {
-                            break;
-                        }
-                        if (!arerisingagain){
-                            break;
-                        }
-                    }
+            var smb_ratio = determine_varSMBratio(profile, bg, target_bg);
+            if (AIMI_Power === true){
+            var GN = 3.1416;
+            }else{
+            var GN = 1.618;
+            }
 
-                    if (areValuesClose) {
-                        console.log("Les 4 dernières valeurs sont proches à +/- 5");
+            if (!profile.key_use_newsmb){
+            if (iTime > 20 && iTime < 25  && aimi_delta > 0 && !AIMI_BreakFastLight && aimismb === true && !profile.temptargetSet){//#MT AIMI
+                var microBolus = LastManualBolus / 1.618;
+                microBolus = (microBolus === AIMI_lastBolusSMBUnits ? 0  : microBolus);
+                microBolus = Math.min(AIMI_UAM_CAP,microBolus);
+                UAMAIMIReason += "First SMB after Prebolus("+LastManualBolus+" U) : "+microBolus+" U; ";
 
-                    } else {
-                        console.log("Les 4 dernières valeurs ne sont pas proches à +/- 5");
-                    }
-                     rT.reason += ", areValuesClose : "+areValuesClose+", arerisingagain : "+arerisingagain;
-                    // Condition pour détecter une progression lente du bg
-                    if (bg >= 130 && areValuesClose === true) {
-                        microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 8 ? M1 : microBolus;
-                    }else if(arerisingagain === true){
-                        microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 8 ? M2 : microBolus;
-                    }
-                }
+            }else if (iTimeActivation && AIMI_UAM && AIMI_BreakFastLight && nowdec >= AIMI_BL_StartTime && nowdec <= AIMI_BL_EndTime && !profile.temptargetSet && aimi_delta > 0 && aimismb === true){
+
+                       insulinReq = round((((aimi_delta * GN) + (min_bg*0.52) ) / future_sens)*smb_ratio,2);
+
+                       var microBolus = Math.min(AIMI_UAM_CAP,(insulinReq * Hypo_ratio));
+                       microBolus = (microBolus > (max_iob - iob_data.iob) ? (max_iob - iob_data.iob) : microBolus);
 
 
+            }else if (iTimeActivation && AIMI_UAM && !AIMI_BreakFastLight && !profile.temptargetSet && aimi_delta > 0 && aimismb === true){
+
+                      insulinReq = round((((aimi_delta * GN) + (aimi_bg*0.52) ) / future_sens) * bgDegree,2);
+                      insulinReq = countSMB > 3 && circadian_smb > (-2) ? round((((aimi_delta * GN) + (min_bg*0.52)) / future_sens) * smb_ratio,2) : insulinReq;
+                      var microBolus = Math.min(AIMI_UAM_CAP,(insulinReq * Hypo_ratio));
+                      microBolus = (microBolus > (max_iob - iob_data.iob) ? (max_iob - iob_data.iob) : microBolus);
+
+            }else if (delta > 0){
+
+                var microBolus = Math.min(insulinReq*smb_ratio, maxBolusTT);
 
             }
-            microBolus = microBolus > (max_iob - microBolus) ? (max_iob - microBolus) : microBolus;
-            var newBG = bg; // Obtenir la nouvelle valeur BG
-            processNewBGValue(newBG); // Appeler la fonction avec la nouvelle valeur BG
-            microBolus = isReduced ? microBolus * 0.6 : microBolus;
-            microBolus = Math.floor(microBolus * roundSMBTo) / roundSMBTo;
-            rT.reason += ",isReduced : "+isReduced;
+            }else if (profile.key_use_newsmb){
+             var bfl_bfiob = AIMI_BreakFastLight === true || BFIOB === true ? true : false;
+             if (iTimeActivation && bfl_bfiob === true && !profile.temptargetSet && delta > 0 &&  aimismb === true && sens_predType == "UAM+" && UAMpredBG >= 220){
+             insulinReq = ((1 + Math.sqrt(aimi_delta)) / 4);
+             var microBolus = circadian_smb > (-10) ? Math.min(AIMI_UAM_CAP,insulinReq*smb_ratio) : Math.min(AIMI_UAM_CAP,insulinReq);
+             microBolus = (microBolus > (max_iob - iob_data.iob) ? (max_iob - iob_data.iob) : microBolus);
+             if (iTime > 180 && bg < 170 || meal_data.MaxSMBcount >=1){
+                 var M1 = microBolus / 3;
+                 var M2 = microBolus / 2;
+                    if (bg < 150 && delta <= 10){
+                    microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? nosmb = true : M1;
+                    }else if (bg < 150 && delta > 10){
+
+                        microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? M1 : M2;
+                    }else if (bg > 150 && delta > 10){
+                    microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? M2 : microBolus;
+                    }else if (bg > 150 && delta <= 10 ){
+                    microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? nosmb = true : M1;
+                    }
+                 }
+             }else if (iTimeActivation && bfl_bfiob === false && !profile.temptargetSet && delta > 0 && aimismb === true && UAMpredBG >= 150){
+               insulinReq = ((1 + Math.sqrt(aimi_delta)) / 2);
+                   if (circadian_smb > (-3)){
+                     var microBolus = Math.min(AIMI_UAM_CAP,insulinReq*smb_ratio);
+                     microBolus = (microBolus > (max_iob - iob_data.iob) ? (max_iob - iob_data.iob) : microBolus);
+                     }else if (circadian_smb >= (-4) && circadian_smb <= (-3)  && bg > 140){
+                     var microBolus = Math.min(AIMI_UAM_CAP,insulinReq*2);
+                     microBolus = (microBolus > (max_iob - iob_data.iob) ? (max_iob - iob_data.iob) : microBolus);
+                     }else if (circadian_smb < (-5)){
+                     var microBolus = Math.min(AIMI_UAM_CAP,insulinReq*2);
+                     microBolus = (microBolus > (max_iob - iob_data.iob) ? (max_iob - iob_data.iob) : microBolus);
+                     }else if(circadian_smb > -1 && bg > 200 ){
+                     var microBolus = Math.min(AIMI_UAM_CAP,round((Math.min(minPredBG,eventualBG) - target_bg) / future_sens, 2));
+                     microBolus = (microBolus > (max_iob - iob_data.iob) ? (max_iob - iob_data.iob) : microBolus);
+                     }else{
+                     var microBolus = Math.min(AIMI_UAM_CAP,insulinReq);
+                     microBolus = (microBolus > (max_iob - iob_data.iob) ? (max_iob - iob_data.iob) : microBolus);
+                     }
+                   if (iTime > 180 && bg < 170 || meal_data.MaxSMBcount >=1 ){
+                    var M1 = microBolus / 3;
+                    var M2 = microBolus / 2;
+                       if (bg < 150 && delta <= 10){
+                       microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? nosmb = true : M1;
+                       }else if (bg < 150 && delta > 10){
+
+                           microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? M1 : M2;
+                       }else if (bg > 150 && delta > 10){
+                       microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? M2 : microBolus;
+                       }else if (bg > 150 && delta <= 10 ){
+                       microBolus = AIMI_lastBolusSMBUnits > M1 && TimeSMB <= 6 ? nosmb = true : M1;
+                       }
+                    }
+
+               }else if (delta > 0){
+             var microBolus = Math.min(insulinReq*smb_ratio, maxBolusTT);
+             microBolus = (microBolus > (max_iob - iob_data.iob) ? (max_iob - iob_data.iob) : microBolus);
+             }
+             }
+
+            microBolus = Math.floor(microBolus*roundSMBTo)/roundSMBTo;
 
 
             //var microBolus = Math.floor(Math.min(insulinReq * insulinReqPCT,maxBolusTT)*roundSMBTo)/roundSMBTo;
             // calculate a long enough zero temp to eventually correct back up to target
-        var smbTarget = target_bg;
+    if ( meal_data.TDDAIMI3 ){
+            if (iTimeActivation ){
+                            console.log("--- if iTime < "+iTimeProfile+" -----");
+                            //console.log("TriggerPredSMB : "+TriggerPredSMB);
+                            console.log("iTime : "+iTime);
+                            console.log("iTimeActivation : "+iTimeActivation);
+                            console.log("\n");
+                            console.log("target_bg : "+target_bg);
+                            console.log("\n");
+                            console.log("Sensitivity ratio set to "+sensitivityRatio+" based on temp target of "+target_bg);
+                            console.log("\n");
+                            console.log("Adjusting basal from "+profile_current_basal+" to "+basal);
+                            console.log("\n");
+                            //console.log("maxBolusTT : "+maxBolusTT);
+                            //console.log("InsulinReqPCT : "+(insulinReqPCT * 100)+"%");
+                            console.log("insulinReq : "+insulinReq);
+                            console.log("\n");
+                            console.log("------------------------------");
+        }
+    }
+
+
+            var smbTarget = target_bg;
             worstCaseInsulinReq = (smbTarget - (naive_eventualBG + minIOBPredBG)/2 ) / sens;
             durationReq = round(30*worstCaseInsulinReq / basal);
+       if (iTimeActivation === true && sens_predType == "NA"){
 
-        if (profile.nightSMBdisable === true && now.getHours() >= profile.NoSMBStart && now.getHours() <= profile.NoSMBEnd){
-            microBolus = 0;
-            rT.reason += ", No SMB during the night, option is enable on the interval you define in the settings, ";
-        }else if (UAMpredBG < 110){
-            microBolus = 0;
-            rT.reason += ", No SMB because UAMpredBG < 100, ";
-        }else if (bg < target_bg && delta < -2){
-            microBolus = 0;
-            rT.reason += ", No SMB because bg < target_bg && delta < -2, ";
-        }else if (bg < (target_bg - 15) && shortAvgDelta <= 2){
-            microBolus = 0;
-            rT.reason += ", No SMB because bg < (target_bg - 15) && shortAvgDelta <= 2, ";
-        }else if (bg < 90){
-            microBolus = 0;
-            rT.reason += ", No SMB because bg < 90, ";
-        }else if (bg < 150 && delta < -5){
-            microBolus = 0;
-            rT.reason += ", No SMB because bg < 150 && delta < -5, ";
-        }else if (nosmb === true){
-            microBolus = 0;
-            rT.reason += ", No SMB = true => force basal, ";
-        }else if (delta <= b30upperdelta && bg < b30upperLimit && lastbolusAge > profile.key_mbi){
-            microBolus = 0;
-            rT.reason += ", B30 decision : No SMB = true => force basal, ";
+            if (UAMpredBG < 110){
+                microBolus = 0;
+                rT.reason += ", No SMB because UAMpredBG < 100, ";
+            }
         }
-        // if insulinReq > 0 but not enough for a microBolus, don't set an SMB zero temp
+        if (iTime > 60){
+        if (bg < target_bg && delta < -2){
+        microBolus = 0;
+        rT.reason += ", No SMB because bg < target_bg && delta < -2, ";
+        }else if (bg < (target_bg - 15) && shortAvgDelta <= 2){
+        microBolus = 0;
+        rT.reason += ", No SMB because bg < (target_bg - 15) && shortAvgDelta <= 2, ";
+        }else if (bg < 90){
+        microBolus = 0;
+        rT.reason += ", No SMB because bg < 90, ";
+        }else if (bg < 150 && delta < -5){
+        microBolus = 0;
+        rT.reason += ", No SMB because bg < 150 && delta < -5, ";
+        }else if (bg < 200 && delta < -7){
+        microBolus = 0;
+        rT.reason += ", No SMB because bg < 200 && delta < -7, ";
+        }else if (delta < -10){
+        microBolus = 0;
+        rT.reason += ", No SMB because delta < -10, ";
+        }else if (delta>-3 && delta<3 && shortAvgDelta>-3 && shortAvgDelta<3 && longAvgDelta>-3 && longAvgDelta<3 && bg < 200){
+        microBolus = 0;
+        rT.reason += ", No SMB because it's stable ";
+        }else if (nosmb === true){
+        microBolus = 0;
+        rT.reason += ", No SMB nosmb = true ";
+        }
+        }
+            // if insulinReq > 0 but not enough for a microBolus, don't set an SMB zero temp
             if (insulinReq > 0 && microBolus < profile.bolus_increment) {
                 durationReq = 0;
             }
@@ -1627,9 +1984,11 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
                 smbLowTempReq = round( basal * durationReq/30 ,2);
                 durationReq = 30;
             }
-
-            rT.reason += " insulinReq " + insulinReq;
-
+            if (iTimeActivation && meal_data.TDDAIMI3){
+            rT.reason += ", MagicNumber: " + round(MagicNumber,2) + ", smbRatio: " + round(smb_ratio,2) + ",limitIOB: " + round(limitIOB,2) + ", bgDegree: " + round(bgDegree,2);
+            }else{
+            rT.reason += " insulinReq " + insulinReq + ",smbRatio : " + round(smb_ratio,2);
+            }
 
             if (microBolus >= maxBolus) {
                 rT.reason +=  "; maxBolusTT " + maxBolusTT;
@@ -1638,6 +1997,10 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
                 rT.reason += "; setting " + durationReq + "m low temp of " + smbLowTempReq + "U/h";
             }
             rT.reason += ". ";
+
+            if (nowdec > 0 && nowdec < 7){
+            rT.reason += " ; Basal proposition : " + AIMI_Basal;
+            }
             //allow SMBs every 3 minutes by default
             var SMBInterval = 3;
             if (profile.SMBInterval) {
@@ -1645,21 +2008,17 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
                 SMBInterval = Math.min(10,Math.max(1,profile.SMBInterval));
             }
 
-            if (profile.key_use_countsteps === true && profile.recentSteps30Minutes > 900 && profile.recentSteps5Minutes >= 0 && profile.accelerating_up === 0){
+            if (iTimeActivation && AIMI_BreakFastLight){
             SMBInterval = 15;
-            rT.reason += ", the smb interval change for "+SMBInterval+" minutes because the steps number > 900 : "+profile.recentSteps30Minutes;
-            }else if(meal_data.countSMB40 > 3 && circadian_smb > -7 && lastbolusAge > profile.key_mbi ){
-            SMBInterval = 15;
-            rT.reason += ", the smb interval change for "+SMBInterval+" minutes because accelerating_up = 0 and you receive more than 3 SMB with a circadian_SMB > -7";
-            }else if (delta>-3 && delta<3 && shortAvgDelta>-3 && shortAvgDelta<3 && longAvgDelta>-3 && longAvgDelta<3 && bg < 180 && lastbolusAge > profile.key_mbi ){
-            SMBInterval = 15;
-            rT.reason += ", the smb interval change for "+SMBInterval+" minutes because bg is stable";
-            }else if (circadian_smb > 0 && lastbolusAge > profile.key_mbi ){
-            SMBInterval = 15;
-            rT.reason += ", the smb interval change for "+SMBInterval+" minutes because circadian_smb ("+circadian_smb+") > 0";
-            }else if(lastbolusAge > profile.key_mbi &&  bg < 130 && glucose_status.delta > 0 && circadian_smb > (-2) && circadian_smb < 1){
-            SMBInterval = 10;
-            rT.reason += ", the smb interval change for "+SMBInterval+" minutes because circadian_smb ("+circadian_smb+") > 0";
+            }else if (iTimeActivation && UAMpredBG < 100){
+            SMBInterval = 20;
+            }else if (iTimeActivation && AIMI_lastBolusSMBUnits >= 0.8 * AIMI_UAM_CAP && UAMpredBG > 100){
+            SMBInterval = 15 * aimi_rise;
+            }else if (iTimeActivation && AIMI_lastBolusSMBUnits > 0.6 * AIMI_UAM_CAP && profile.enable_AIMI_Break || iTimeActivation && countSMB > 2){
+            SMBInterval = 10 * aimi_rise;
+            }else if (countsteps === true && recentSteps30Minutes > 900 && recentSteps5Minutes >= 0){
+            SMBInterval = 10 * aimi_rise;
+            rT.reason += ", the smb interval change for "+SMBInterval+" minutes because the steps number > 900 : "+recentSteps30Minutes;
             }
             rT.reason += "SMBInterval : "+SMBInterval+" ; ";
             var nextBolusMins = round(SMBInterval-lastBolusAge,0);
@@ -1686,46 +2045,44 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
         }
 
         var maxSafeBasal = tempBasalFunctions.getMaxSafeBasal(profile);
-        if (delta>-3 && delta<3 && shortAvgDelta>-3 && shortAvgDelta<3 && longAvgDelta>-3 && longAvgDelta<3 && bg > 150){
-            rT.reason += ". force basal because it's stable but bg > 150 : "+(basal*10/60)*30+" U";
-            //rT.deliverAt = deliverAt;
-            var durationReq = 30;
-            rT.duration = durationReq;
-            var rate = round_basal(basal*10,profile);
-            //return tempBasalFunctions.setTempBasal(rate, 30, profile, rT, currenttemp);
 
-        }else if (iTimeActivation === true && delta > 0 && delta <= b30upperdelta && bg <= b30upperLimit && bg < 200) {
-            if(bg < 100 && delta <= 5 && delta > 0) {
-                rT.reason += ". force basal because AIMI is running and delta < 6 : "+(basal*delta/60)*30;
-                var durationReq = 30;
+
+
+        if (iTimeActivation === true && iTime < profile.b30_duration && meal_data.countBolus === 1) {
+            rT.reason += ". force basal because iTime is running and lesser than "+profile.b30_duration+" minutes : "+(basal*10/60)*30+" U, remaining time : " +(profile.b30_duration - iTime);
+            //rT.deliverAt = deliverAt;
+            var durationReq = profile.b30_duration;
+            rT.duration = durationReq;
+
+            var rate = round_basal(basal*10,profile);
+
+        } else if (iTimeActivation === true && delta > 0 && delta <= b30upperdelta && bg < b30upperLimit) {
+            if(bg < 100 && delta <= 5) {
+                rT.reason += ". force basal because iTime is running and delta < 6 : "+(basal*delta/60)*30;
+                var durationReq = 20;
                 rT.duration = durationReq;
                 var rate = round_basal(basal*delta,profile);
-            } else if (bg > 0.8 * b30upperLimit && bg < b30upperLimit) {
-                rT.reason += ". force basal because AIMI is running and delta < 6 : "+(basal*8/60)*30;
-                var durationReq = 30;
+            } else if (b30Ko === false && bg > 0.8 * b30upperLimit && bg < b30upperLimit) {
+                rT.reason += ". force basal because iTime is running and delta < 6 : "+(basal*8/60)*30;
+                var durationReq = profile.b30_duration;
                 rT.duration = durationReq;
                 var rate = round_basal(basal*8,profile);
+            } else if (b30Ko === false) {
+                rT.reason += ". force basal because iTime is running and delta < 6 : "+(basal*6/60)*30;
+                var durationReq = 20;
+                rT.duration = durationReq;
+                var rate = round_basal(basal*6,profile);
             }
-            //return tempBasalFunctions.setTempBasal(rate, 15, profile, rT, currenttemp);
-        } else if (iTimeActivation === true && delta > 0 && delta <= 5 && bg >= 150 && bg < 200) {
-            rT.reason += ". force basal because AIMI is running and delta < 6 : "+(basal*delta/60)*30;
-            var durationReq = 30;
+        } else if (iTimeActivation === true && glucose_status.delta > 0 && glucose_status.delta <= 5 && bg >= 170) {
+            rT.reason += ". force basal because iTime is running and delta < 6 : "+(basal*delta/60)*30;
+            var durationReq = 20;
             rT.duration = durationReq;
             var rate = round_basal(basal*delta,profile);
-            //return tempBasalFunctions.setTempBasal(rate, 30, profile, rT, currenttemp);
-        }else if (aimi_activity === false && delta > 0 && profile.tddlastHrs !== null && profile.tdd7DaysPerHour !== null && profile.tddlastHrs < profile.tdd7DaysPerHour) {
-             rT.reason += ". force basal because tddlastHrs < tdd7DaysPerHours : " + (profile.tdd7DaysPerHour - profile.tddlastHrs);
-             var durationReq = 30;
-             rT.duration = durationReq;
-             var rate = round_basal(profile.tdd7DaysPerHour - profile.tddlastHrs, profile);
-
-        //return tempBasalFunctions.setTempBasal(rate, 15, profile, rT, currenttemp);
-        }else if(nosmb === true && delta > 0){
-                rT.reason += ". force basal because no smb = true : "+(basal * 3);
-                var durationReq = 30;
-                rT.duration = durationReq;
-                var rate = round_basal(basal * 3,profile);
-                //return tempBasalFunctions.setTempBasal(rate, 30, profile, rT, currenttemp);
+        }else if (aimi_activity === false && delta > 0 && profile.tddlastHrs < profile.tdd7DaysPerHour ){
+        rT.reason += ". force basal because tddlastHrs < tdd7DaysPerHours : "+(profile.tddlastHrs - profile.tddlastHrs);
+        var durationReq = 20;
+        rT.duration = durationReq;
+        var rate = round_basal(profile.tddlastHrs - profile.tddlastHrs);
         }
 
 
@@ -1734,7 +2091,8 @@ var TimeSMB = round(( new Date(systemTime).getTime() - meal_data.lastBolusSMBTim
          rT.reason += "adj. req. rate: "+round(rate, 2)+" to maxSafeBasal: "+maxSafeBasal+", ";
          rate = round_basal(maxSafeBasal, profile);
          }
-
+         rT.reason += ",TriggerPredSMB_future_sens_45 : "+TriggerPredSMB_future_sens_45+",";
+        rT.reason += UAMAIMIReason;
         insulinScheduled = currenttemp.duration * (currenttemp.rate - basal) / 60;
 
         if (insulinScheduled >= insulinReq * 2) { // if current temp would deliver >2x more than the required insulin, lower the rate
