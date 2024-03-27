@@ -5,14 +5,12 @@ import info.nightscout.comboctl.base.CurrentTbrState
 import info.nightscout.comboctl.base.InvariantPumpData
 import info.nightscout.comboctl.base.Nonce
 import info.nightscout.comboctl.base.PumpStateStore
+import info.nightscout.comboctl.base.PumpStateStoreAccessException
 import info.nightscout.comboctl.base.Tbr
 import info.nightscout.comboctl.base.toBluetoothAddress
 import info.nightscout.comboctl.base.toCipher
 import info.nightscout.comboctl.base.toNonce
 import info.nightscout.shared.sharedPreferences.SP
-import info.nightscout.shared.sharedPreferences.SPDelegateInt
-import info.nightscout.shared.sharedPreferences.SPDelegateLong
-import info.nightscout.shared.sharedPreferences.SPDelegateString
 import kotlinx.datetime.Instant
 import kotlinx.datetime.UtcOffset
 import kotlin.reflect.KClassifier
@@ -151,7 +149,7 @@ class AAPSPumpStateStore(
                 timestamp = Instant.fromEpochSeconds(tbrTimestamp),
                 percentage = tbrPercentage,
                 durationInMinutes = tbrDuration,
-                type = Tbr.Type.fromStringId(tbrType)!!
+                type = Tbr.Type.fromStringId(tbrType) ?: throw PumpStateStoreAccessException(pumpAddress, "Invalid type \"$tbrType\"")
             ))
         else
             CurrentTbrState.NoTbrOngoing

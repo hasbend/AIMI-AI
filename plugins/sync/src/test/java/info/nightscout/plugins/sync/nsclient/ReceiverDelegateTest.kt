@@ -1,6 +1,5 @@
 package info.nightscout.plugins.sync.nsclient
 
-import info.nightscout.androidaps.TestBase
 import info.nightscout.core.utils.fabric.FabricPrivacy
 import info.nightscout.interfaces.receivers.ReceiverStatusStore
 import info.nightscout.plugins.sync.R
@@ -9,6 +8,7 @@ import info.nightscout.rx.events.EventChargingState
 import info.nightscout.rx.events.EventNetworkChange
 import info.nightscout.shared.interfaces.ResourceHelper
 import info.nightscout.shared.sharedPreferences.SP
+import info.nightscout.sharedtests.TestBase
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -55,13 +55,13 @@ class ReceiverDelegateTest : TestBase() {
         Assertions.assertTrue(sut.calculateStatus(EventNetworkChange(ssid = "<unknown ssid>", mobileConnected = false, wifiConnected = true)))
         Assertions.assertFalse(sut.calculateStatus(EventNetworkChange()))
 
-        `when`(sp.getString(R.string.key_ns_wifi_ssids, "")).thenReturn("test")
+        `when`(sp.getString(R.string.key_ns_wifi_ssids, "")).thenReturn("test 1")
         Assertions.assertTrue(sut.calculateStatus(EventNetworkChange(mobileConnected = true, wifiConnected = false, roaming = true)))
         Assertions.assertTrue(sut.calculateStatus(EventNetworkChange(mobileConnected = true, wifiConnected = false, roaming = false)))
         Assertions.assertTrue(sut.calculateStatus(EventNetworkChange(ssid = "<unknown ssid>", mobileConnected = true, wifiConnected = true)))
         Assertions.assertFalse(sut.calculateStatus(EventNetworkChange(ssid = "<unknown ssid>", mobileConnected = false, wifiConnected = true)))
-        Assertions.assertTrue(sut.calculateStatus(EventNetworkChange(ssid = "test", mobileConnected = true, wifiConnected = true)))
-        Assertions.assertTrue(sut.calculateStatus(EventNetworkChange(ssid = "test", mobileConnected = false, wifiConnected = true)))
+        Assertions.assertTrue(sut.calculateStatus(EventNetworkChange(ssid = "test 1", mobileConnected = true, wifiConnected = true)))
+        Assertions.assertTrue(sut.calculateStatus(EventNetworkChange(ssid = "test 1", mobileConnected = false, wifiConnected = true)))
         Assertions.assertFalse(sut.calculateStatus(EventNetworkChange()))
 
         `when`(sp.getBoolean(R.string.key_ns_cellular, true)).thenReturn(false)

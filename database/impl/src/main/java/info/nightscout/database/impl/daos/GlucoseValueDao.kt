@@ -29,7 +29,7 @@ internal interface GlucoseValueDao : TraceableDao<GlucoseValue> {
     fun getLastId(): Long?
 
     @Query("SELECT * FROM $TABLE_GLUCOSE_VALUES WHERE nightscoutId = :nsId AND referenceId IS NULL")
-    fun findByNSIdMaybe(nsId: String): Maybe<GlucoseValue>
+    fun findByNSId(nsId: String): GlucoseValue?
 
     @Query("SELECT * FROM $TABLE_GLUCOSE_VALUES WHERE timestamp = :timestamp AND sourceSensor = :sourceSensor AND referenceId IS NULL")
     fun findByTimestampAndSensor(timestamp: Long, sourceSensor: GlucoseValue.SourceSensor): GlucoseValue?
@@ -43,12 +43,6 @@ internal interface GlucoseValueDao : TraceableDao<GlucoseValue> {
     @Query("SELECT * FROM $TABLE_GLUCOSE_VALUES WHERE id > :lastId AND referenceId IS NULL ORDER BY timestamp ASC")
     fun getDataFromId(lastId: Long): Single<List<GlucoseValue>>
 
-    @Query("SELECT * FROM $TABLE_GLUCOSE_VALUES WHERE id >= :id")
-    fun getAllStartingFrom(id: Long): Single<List<GlucoseValue>>
-
-    @Query("SELECT * FROM $TABLE_GLUCOSE_VALUES WHERE referenceId = :id ORDER BY id DESC LIMIT 1")
-    fun getLastHistoryRecord(id: Long): GlucoseValue?
-
     // This query will be used with v3 to get all changed records
     @Query("SELECT * FROM $TABLE_GLUCOSE_VALUES WHERE id > :id AND referenceId IS NULL OR id IN (SELECT DISTINCT referenceId FROM $TABLE_GLUCOSE_VALUES WHERE id > :id) ORDER BY id ASC")
     fun getModifiedFrom(id: Long): Single<List<GlucoseValue>>
@@ -61,5 +55,5 @@ internal interface GlucoseValueDao : TraceableDao<GlucoseValue> {
     fun getCurrentFromHistoric(referenceId: Long): Maybe<GlucoseValue>
 
     @Query("SELECT * FROM $TABLE_GLUCOSE_VALUES WHERE dateCreated > :since AND dateCreated <= :until LIMIT :limit OFFSET :offset")
-    suspend fun getNewEntriesSince(since: Long, until: Long, limit: Int, offset: Int): List<GlucoseValue>
+    fun getNewEntriesSince(since: Long, until: Long, limit: Int, offset: Int): List<GlucoseValue>
 }

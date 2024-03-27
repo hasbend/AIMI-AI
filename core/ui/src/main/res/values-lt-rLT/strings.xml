@@ -23,13 +23,13 @@
     <string name="mgdl">mg/dl</string>
     <string name="mmol">mmol/l</string>
     <string name="save">Išsaugoti</string>
-    <string name="snooze">Snausti</string>
+    <string name="snooze">Nutildyti</string>
     <string name="virtual_pump">Virtuali pompa</string>
     <string name="constraints">Apribojimai</string>
     <string name="superbolus">Superbolus</string>
     <string name="pump_paused">Pompa pristabdyta</string>
     <string name="and">Ir</string>
-    <string name="patient_name_default" comment="This is default patient display name, when user does not provide real one">Vartotojas</string>
+    <string name="patient_name_default" comment="This is default patient display name, when user does not provide real one">Naudotojas</string>
     <string name="result">Rezultatas</string>
     <string name="settings">Parametrai</string>
     <string name="statuslights">Būklės indikatoriai</string>
@@ -37,7 +37,7 @@
     <string name="configbuilder_insulin">Insulinas</string>
     <string name="value_unavailable_short">n/a</string>
     <string name="master_password">Pagrindinis slaptažodis</string>
-    <string name="ue_export_to_csv">Eksportuoti vartotojo įrašus į Excel (csv)</string>
+    <string name="ue_export_to_csv">Eksportuoti naudotojo įrašus į Excel (csv)</string>
     <string name="confirm">Patvirtinti</string>
     <string name="pump">Pompa</string>
     <string name="missed_bg_readings">Negauti KG duomenys</string>
@@ -82,7 +82,7 @@
     <string name="bluetooth">Bluetooth</string>
     <string name="btwatchdog_title">BT Watchdog</string>
     <string name="btwatchdog_summary">Vienai sekundei išjungia telefono bluetooth, jei ryšys su pompa nutrūksta. Gali būti veiksminga kai kuriems telefonų modeliams, turintiems BT problemų.</string>
-    <string name="virtualpump_resultok">Gerai</string>
+    <string name="virtualpump_resultok">OK</string>
     <string name="pump_time_updated">Pompos laikas pakeistas</string>
     <string name="exit">Išeiti</string>
     <string name="removerecord">Ištrinti įrašą</string>
@@ -232,7 +232,7 @@
     <string name="hypo">Hipo</string>
     <string name="activity">Aktyvumas</string>
     <string name="wear">Išmanieji laikrodžiai</string>
-    <string name="automation">Automatiškai</string>
+    <string name="automation">Automatizacija</string>
     <string name="custom">Pasirinktinis</string>
     <string name="loop">Ciklas</string>
     <string name="ns">NS</string>
@@ -288,7 +288,7 @@
     <string name="uel_resume">ATNAUJINTI</string>
     <string name="uel_suspend">SUSTABDYTI</string>
     <string name="uel_hw_pump_allowed">HW POMPA LEIDŽIAMA</string>
-    <string name="uel_clear_pairing_keys">IŠVALYTI PORAVIMO KODUS</string>
+    <string name="uel_clear_pairing_keys">IŠVALYTI SUSIEJIMO KODUS</string>
     <string name="uel_accepts_temp_basal">PRIIMTI LAIKINĄ BAZĘ</string>
     <string name="uel_cancel_temp_basal">ATŠAUKTI LAIKINĄ BAZĘ</string>
     <string name="uel_cancel_bolus">ATŠAUKTI BOLUSĄ</string>
@@ -341,7 +341,7 @@
     <string name="uel_otp_export">EKSPORTUOTI OTP</string>
     <string name="uel_otp_reset">IŠVALYTI OTP</string>
     <string name="uel_stop_sms">STABDYTI SMS</string>
-    <string name="uel_export_csv">EKSPORTUOTI VARTOTOJO ĮRAŠUS</string>
+    <string name="uel_export_csv">EKSPORTUOTI NAUDOTOJO ĮRAŠUS</string>
     <string name="uel_start_aaps">PALEISTI AAPS</string>
     <string name="uel_exit_aaps">IŠEITI IŠ AAPS</string>
     <string name="uel_plugin_enabled">ĮSKIEPIS ĮGALINTAS</string>
@@ -376,10 +376,13 @@
     <string name="carbs_g">AV %1$d g</string>
     <string name="extended_bolus_u_min">IŠTĘSTAS BOLUSAS %1$.2f vv %2$d min</string>
     <string name="load_events">GAUTI ĮVYKIUS</string>
+    <string name="clear_alarms">IŠVALYTI ALIARMUS</string>
+    <string name="deactivate">DEAKTYVUOTI</string>
+    <string name="update_time">ATNAUJINTI LAIKĄ</string>
     <string name="load_history">GAUTI ISTORIJĄ %1$d</string>
     <string name="load_tdds">GAUTI BPD</string>
     <string name="set_profile">NUSTATYTI PROFILĮ</string>
-    <string name="set_user_settings">PASIRINKTI VARTOTOJO NUSTATYMUS</string>
+    <string name="set_user_settings">PASIRINKTI NAUDOTOJO NUSTATYMUS</string>
     <string name="smb_bolus_u">SMB BOLUSAS %1$.2f vv</string>
     <string name="start_pump">PALEISTI POMPĄ</string>
     <string name="stop_pump">SUSTABDYTI POMPĄ</string>
@@ -387,14 +390,14 @@
     <string name="temp_basal_percent">LAIKINA BAZĖ %1$d%% %2$d min</string>
     <string name="insight_set_tbr_over_notification">INSIGHT NUSTATYTI LAIKINĄ BAZĘ PRANEŠIMU</string>
     <string name="read_status" comment="10 characters max for READSTATUS translation">STATUSAS %1$s</string>
-    <string name="keepalive_status_outdated" comment="26 characters max for translation">Tęsti. Būklė per sena.</string>
+    <string name="keepalive_status_outdated" comment="26 characters max for translation">Tęsti. Statusas senas.</string>
     <string name="keepalive_basal_outdated" comment="26 characters max for translation">Tęsti. Bazė per sena.</string>
     <string name="sms" comment="26 characters max for translation">SMS</string>
     <string name="formatPercent">%1$.0f%%</string>
     <string name="basal">Valandinė bazė</string>
     <string name="basalpct">Valandinė bazė %</string>
     <string name="a11y_file">failas</string>
-    <string name="a11y_user">vartotojas</string>
+    <string name="a11y_user">naudotojas</string>
     <!-- Autotune -->
     <string name="autotune">Autotune</string>
     <string name="autotune_description">Padeda patikslinti profilio nustatymus (JIF, IA ir bazę)</string>
@@ -421,6 +424,7 @@
     <string name="autotune_ic_warning">Pasirinktas profilis turi %1$d IA reikšmes(ių). Autotune naudos %2$.2f g/v</string>
     <string name="autotune_isf_warning">Pasirinktas profilis turi %1$d JIF reikšmes(ių). Autotune naudos %2$.1f %3$s/v</string>
     <string name="autotune_error">Klaida įkeliant duomenis. Paleiskite Autotune iš naujo arba sumažinkite dienų skaičių</string>
+    <string name="autotune_error_more_days">Klaida įvedimo duomenyse, padidinkite dienų skaičių</string>
     <string name="autotune_warning_during_run">Autotune skaičiuoja, turėkite kantrybės</string>
     <string name="autotune_warning_after_run">Atidžiai patikrinkite rezultatus prieš juos naudodami!</string>
     <string name="autotune_partial_result">Patikslinta %1$d / %2$d dienų</string>
@@ -453,6 +457,7 @@
     <string name="cobvsiob">AAO prieš AIO</string>
     <string name="slowabsorptiondetected"><![CDATA[<font color=\'%1$s\'>!!!!! Nustatytas lėtas angliavandenių įsisavinimas: %2$d%% laiko. Dar karą patikrinkite savo skaičiavimus. AAO gali būti pervertinti, todėl gali būti suleista per daug insulino!!!!!</font>]]></string>
     <string name="partialboluswizard">Suleisti šią boluso skaičiuoklės rezultato dalį [%]</string>
+    <string name="partialboluswizard_reset_time">Senų glikemijos duomenų riba [min]</string>
     <string name="bolus_constraint_applied_warn">Pritaikytas boluso apribojimas: %1$.2f v iki %2$.2f v</string>
     <string name="bolus_recorded_only">Bolusas bus tik įrašytas (nebus suleistas)</string>
     <string name="advisoralarm">Pranešti apie laiką valgyti</string>
@@ -513,7 +518,7 @@
     <string name="connection_error">Pompos prisijungimo klaida</string>
     <string name="reading_pump_history">Skaitoma pompos istorija</string>
     <string name="password_cleared">Slaptažodis išvalytas!</string>
-    <string name="pairing">Sujungiama</string>
+    <string name="pairing">Susiejimas</string>
     <string name="initializing">Inicijuojama ...</string>
     <!--    Constraints-->
     <string name="limitingbasalratio">Ribojamas maksimalus bazės dydis%1$.2f vv/val dėl %2$s</string>
@@ -525,7 +530,7 @@
     <!--    Dialogs-->
     <string name="confirmation">Patvirtinimas</string>
     <string name="message">Pranešimas</string>
-    <string name="ok">Gerai</string>
+    <string name="ok">OK</string>
     <string name="cancel">Atšaukti</string>
     <string name="dismiss">ATMESTI</string>
     <string name="yes">Taip</string>
@@ -543,14 +548,14 @@
     <!-- BluetoothDevicePreference -->
     <string name="need_connect_permission">Programai reikalinga Bluetooth prieigos teisė</string>
     <!--    Combo-->
-    <string name="user_request" comment="26 characters max for translation">Vartotojo užklausa</string>
-    <string name="pump_paired" comment="26 characters max for translation">Pompa suporuota</string>
+    <string name="user_request" comment="26 characters max for translation">Naudotojo užklausa</string>
+    <string name="pump_paired" comment="26 characters max for translation">Pompa susieta</string>
     <!--    BlePreCheck-->
     <string name="ble_not_supported">Bluetooth Low Energy nepalaikoma.</string>
-    <string name="ble_not_supported_or_not_paired">Nepalaikomas Bluetooth Low Energy arba įrenginys nesuporuotas.</string>
+    <string name="ble_not_supported_or_not_paired">Nepalaikomas BLE arba įrenginys nesusietas.</string>
     <string name="ble_not_enabled">Bluetooth neįjungta.</string>
     <string name="location_not_found_title">Vietovės nustatymas neįjungtas</string>
-    <string name="location_not_found_message">Vietos nustatymo paslauga turi būti įjungta, kad Bluetooth aptikimas veiktų naujesniuose įrenginiuose. AAPS neseka Jūsų lokacijos, o vietos nustatymo paslauga gali būti išjungta po sėkmingo įrenginių suporavimo.</string>
+    <string name="location_not_found_message">Vietos nustatymo paslauga turi būti įjungta, kad Bluetooth aptikimas veiktų naujesniuose įrenginiuose. AAPS neseka Jūsų lokacijos, o vietos nustatymo paslauga gali būti išjungta po sėkmingo įrenginių susiejimo.</string>
     <!--    Preferences -->
     <string name="nav_plugin_preferences">Įskiepių nustatymai</string>
     <!-- SmsCommunicator -->
@@ -581,4 +586,7 @@
     <string name="cleanup_db_confirm">Ar tikrai norite išvalyti duombazę?\nIstoriniai duomenys ir pakeitimai, senesni nei 3 mėn., bus ištrinti.</string>
     <string name="cleanup_db_confirm_sync">Ar norite išvalyti duombazę?\nIstoriniai duomenys ir pakeitimai, senesni nei 3 mėn., bus ištrinti.\nSinchronizacija reikšmingai pagreitės.</string>
     <string name="cleared_entries">Ištrinti įrašai</string>
+    <!--    Weekday-->
+    <!-- WeekdayPicker -->
+    <!--    DecimalFormatterImpl -->
 </resources>

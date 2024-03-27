@@ -56,6 +56,8 @@ class Connection(
 
     private val bluetoothManager: BluetoothManager? = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager?
 
+    private var _connectionWaitCond: ConnectionWaitCondition? = null
+
     @Volatile
     var session: Session? = null
 
@@ -65,6 +67,7 @@ class Connection(
     @Synchronized
     fun connect(connectionWaitCond: ConnectionWaitCondition) {
         aapsLogger.debug("Connecting connectionWaitCond=$connectionWaitCond")
+        _connectionWaitCond = connectionWaitCond
         podState.connectionAttempts++
         podState.bluetoothConnectionState = OmnipodDashPodStateManager.BluetoothConnectionState.CONNECTING
         val autoConnect = false
@@ -80,6 +83,7 @@ class Connection(
         val before = SystemClock.elapsedRealtime()
         if (waitForConnection(connectionWaitCond) !is Connected) {
             podState.bluetoothConnectionState = OmnipodDashPodStateManager.BluetoothConnectionState.DISCONNECTED
+            _connectionWaitCond = null
             throw FailedToConnectException(podDevice.address)
         }
         val waitedMs = SystemClock.elapsedRealtime() - before
@@ -97,7 +101,7 @@ class Connection(
         val discovered = discoverer.discoverServices(connectionWaitCond)
         val cmdBleIO = CmdBleIO(
             aapsLogger,
-            discovered[CharacteristicType.CMD]!!,
+            discovered.getValue(CharacteristicType.CMD),
             incomingPackets
                 .cmdQueue,
             gatt,
@@ -105,7 +109,7 @@ class Connection(
         )
         val dataBleIO = DataBleIO(
             aapsLogger,
-            discovered[CharacteristicType.DATA]!!,
+            discovered.getValue(CharacteristicType.DATA),
             incomingPackets
                 .dataQueue,
             gatt,
@@ -117,21 +121,24 @@ class Connection(
         cmdBleIO.hello()
         cmdBleIO.readyToRead()
         dataBleIO.readyToRead()
+        _connectionWaitCond = null
     }
 
     @Synchronized
     fun disconnect(closeGatt: Boolean) {
         aapsLogger.debug(LTag.PUMPBTCOMM, "Disconnecting closeGatt=$closeGatt")
-        podState.bluetoothConnectionState = OmnipodDashPodStateManager.BluetoothConnectionState.DISCONNECTED
-        if (closeGatt) {
-            gattConnection?.close()
-            gattConnection = null
-        } else {
+        if (!closeGatt && gattConnection != null) {
+            // Disconnect first, then close gatt
             gattConnection?.disconnect()
+        } else {
+            // Call with closeGatt=true only when ble is already disconnected or there is no connection
+            gattConnection?.close()
+            bleCommCallbacks.resetConnection()
+            gattConnection = null
+            session = null
+            msgIO = null            
+            podState.bluetoothConnectionState = OmnipodDashPodStateManager.BluetoothConnectionState.DISCONNECTED            
         }
-        bleCommCallbacks.resetConnection()
-        session = null
-        msgIO = null
     }
 
     private fun waitForConnection(connectionWaitCond: ConnectionWaitCondition): ConnectionState {
@@ -200,7 +207,14 @@ class Connection(
     // This will be called from a different thread !!!
     override fun onConnectionLost(status: Int) {
         aapsLogger.info(LTag.PUMPBTCOMM, "Lost connection with status: $status")
-        disconnect(false)
+        // Check if waiting for connection, if so, stop waiting
+        _connectionWaitCond?.stopConnection?.let {
+            if (it.count > 0) {
+                _connectionWaitCond?.stopConnection?.countDown()
+            }
+        }
+        // BLE disconnected, so need to close gatt
+        disconnect(true)
     }
 
     companion object {

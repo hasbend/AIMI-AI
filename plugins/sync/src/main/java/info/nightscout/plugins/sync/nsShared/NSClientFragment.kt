@@ -11,12 +11,14 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.text.toSpanned
+import androidx.core.view.MenuCompat
 import androidx.core.view.MenuProvider
 import androidx.lifecycle.Lifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import dagger.android.support.DaggerFragment
 import info.nightscout.core.ui.dialogs.OKDialog
+import info.nightscout.core.utils.HtmlHelper
 import info.nightscout.core.utils.fabric.FabricPrivacy
 import info.nightscout.database.entities.UserEntry
 import info.nightscout.interfaces.Config
@@ -25,7 +27,6 @@ import info.nightscout.interfaces.logging.UserEntryLogger
 import info.nightscout.interfaces.plugin.ActivePlugin
 import info.nightscout.interfaces.plugin.PluginBase
 import info.nightscout.interfaces.plugin.PluginFragment
-import info.nightscout.interfaces.utils.HtmlHelper
 import info.nightscout.plugins.sync.R
 import info.nightscout.plugins.sync.databinding.NsClientFragmentBinding
 import info.nightscout.plugins.sync.databinding.NsClientLogItemBinding
@@ -113,7 +114,7 @@ class NSClientFragment : DaggerFragment(), MenuProvider, PluginFragment {
         menu.add(Menu.FIRST, ID_MENU_RESTART, 0, rh.gs(R.string.restart)).setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
         menu.add(Menu.FIRST, ID_MENU_SEND_NOW, 0, rh.gs(R.string.deliver_now)).setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
         menu.add(Menu.FIRST, ID_MENU_FULL_SYNC, 0, rh.gs(R.string.full_sync)).setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
-        menu.setGroupDividerEnabled(true)
+        MenuCompat.setGroupDividerEnabled(menu, true)
     }
 
     override fun onMenuItemSelected(item: MenuItem): Boolean =
@@ -122,7 +123,7 @@ class NSClientFragment : DaggerFragment(), MenuProvider, PluginFragment {
                 nsClientPlugin?.listLog?.let {
                     synchronized(it) {
                         it.clear()
-                        _binding?.recyclerview?.swapAdapter(RecyclerViewAdapter(it), true)
+                        updateLog()
                     }
                 }
                 true
@@ -210,6 +211,7 @@ class NSClientFragment : DaggerFragment(), MenuProvider, PluginFragment {
             .subscribe({ updateStatus() }, fabricPrivacy::logException)
         updateStatus()
         updateQueue()
+        updateLog()
     }
 
     @Synchronized
@@ -228,6 +230,10 @@ class NSClientFragment : DaggerFragment(), MenuProvider, PluginFragment {
         binding.paused.isChecked = sp.getBoolean(R.string.key_ns_paused, false)
         binding.url.text = nsClientPlugin?.address
         binding.status.text = nsClientPlugin?.status
+    }
+
+    private fun updateLog() {
+        _binding?.recyclerview?.swapAdapter(RecyclerViewAdapter(nsClientPlugin?.listLog ?: arrayListOf()), true)
     }
 
     private inner class RecyclerViewAdapter(private var logList: List<EventNSClientNewLog>) : RecyclerView.Adapter<RecyclerViewAdapter.NsClientLogViewHolder>() {
